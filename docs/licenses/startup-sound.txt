@@ -1,0 +1,3 @@
+app/src/main/res/raw/onnshell_startup.mp3 was generated with an AI music service.
+It is not covered by this repository's MIT license; that service's terms apply.
+Replace the file if you redistribute the app and are unsure of those terms.

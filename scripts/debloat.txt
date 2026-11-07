@@ -1,0 +1,24 @@
+# Packages approved for "pm disable-user --user 0" (Phase 2, 2026-11-05). See docs/DEBLOAT.md.
+# SAFE
+com.google.android.apps.tv.dreamx
+com.google.android.katniss
+android.autoinstalls.config.soc.amlogic
+com.droidlogic.launcher.provider
+com.onn.tv.setup.customization
+com.google.android.partnersetup
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.gretzky.hwinfo
+com.google.android.syncadapters.calendar
+com.android.printspooler
+com.android.dynsystem
+com.android.cameraextensions
+# RISKY, approved by the owner
+com.google.android.youtube.tvmusic
+com.google.android.play.games
+com.onn.updatenotification
+com.android.adservices.api
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+com.android.healthconnect.controller
+com.android.health.connect.backuprestore

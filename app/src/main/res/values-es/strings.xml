@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="row_games">Juegos</string>
+    <string name="row_apps">Aplicaciones</string>
+    <string name="row_system">Sistema</string>
+    <string name="row_power">Energía</string>
+    <string name="games_empty">Aún no hay juegos. La sincronización de la biblioteca llega en la Fase 5.</string>
+    <string name="apps_empty">No hay aplicaciones aquí. Añádelas en Ajustes de OnnShell, Aplicaciones en inicio.</string>
+
+    <string name="sys_android_settings">Ajustes de Android</string>
+    <string name="sys_shell_settings">Ajustes de OnnShell</string>
+    <string name="sys_wifi">Wi-Fi</string>
+    <string name="sys_ethernet">Ethernet</string>
+    <string name="sys_bluetooth">Bluetooth</string>
+    <string name="sys_controller">Prueba de control</string>
+    <string name="sys_input">Modo de entrada</string>
+    <string name="sys_storage">Almacenamiento</string>
+    <string name="sys_library">Sincronizar biblioteca</string>
+    <string name="sys_adb">Estado de ADB</string>
+    <string name="sys_about">Acerca de</string>
+    <string name="power_sleep">Suspender</string>
+    <string name="power_reboot">Reiniciar</string>
+
+    <string name="on">activado</string>
+    <string name="off">desactivado</string>
+    <string name="eth_none">No hay conexión Ethernet. Conecta un cable para ver su dirección aquí.</string>
+    <string name="adb_usb">ADB activado: %1$s</string>
+    <string name="adb_port">Puerto ADB de red 5555: %1$s</string>
+    <string name="adb_open">escuchando</string>
+    <string name="adb_closed">cerrado</string>
+    <string name="adb_wireless">Depuración inalámbrica: %1$s</string>
+    <string name="storage_line">%1$s: %2$.1f GB libres de %3$.1f GB</string>
+    <string name="storage_internal">Interno</string>
+    <string name="storage_no_usb">No hay unidad USB montada</string>
+    <string name="library_phase5">El servidor de la biblioteca de juegos y la sincronización llegan en la Fase 5.</string>
+
+    <string name="reboot_confirm">¿Reiniciar la caja ahora?</string>
+    <string name="yes_reboot">Reiniciar</string>
+    <string name="cancel">Cancelar</string>
+    <string name="launch_failed">No se pudo abrir %1$s</string>
+
+    <string name="details_title">Detalles</string>
+    <string name="options_title">Opciones</string>
+    <string name="no_options">No hay opciones para este elemento.</string>
+    <string name="no_details">No hay detalles para este elemento.</string>
+    <string name="opt_remove_home">Quitar de Aplicaciones</string>
+    <string name="opt_app_info">Información de la aplicación</string>
+    <string name="opt_to_games">Mover a Juegos</string>
+    <string name="opt_to_apps">Devolver a Aplicaciones</string>
+    <string name="detail_package">Paquete: %1$s</string>
+    <string name="detail_version">Versión: %1$s</string>
+    <string name="detail_updated">Actualizada: %1$s</string>
+    <string name="detail_game">Juego</string>
+    <string name="detail_app">Aplicación</string>
+
+    <string name="menu_title">Menú rápido</string>
+    <string name="menu_close">Cerrar</string>
+
+    <string name="settings_accent">Color de acento: %1$s</string>
+    <string name="settings_language">Idioma: %1$s</string>
+    <string name="settings_apps_on_home">Aplicaciones en inicio</string>
+    <string name="lang_name">Español</string>
+    <string-array name="accent_names">
+        <item>Atardecer</item>
+        <item>Cian</item>
+        <item>Ámbar</item>
+        <item>Verde</item>
+        <item>Magenta</item>
+        <item>Rojo</item>
+        <item>Blanco</item>
+    </string-array>
+
+    <string name="controller_held">Presionados: %1$s</string>
+    <string name="controller_last">Último botón: %1$s</string>
+    <string name="controller_exit">Salir: Share y Options a la vez, o Atrás en el control remoto.</string>
+    <string name="back_hint">B: atrás</string>
+
+    <string name="games_placeholder">Tus juegos aparecen aquí</string>
+    <string name="hint_app">A abrir  ·  X detalles  ·  Y opciones</string>
+    <string name="hint_item">A abrir</string>
+    <string name="d_android">Todos los ajustes de Android TV</string>
+    <string name="d_shell">Color de acento, idioma y aplicaciones en inicio</string>
+    <string name="d_wifi">Redes y conexión</string>
+    <string name="d_eth">Conexión por cable y dirección</string>
+    <string name="d_bt">Vincular controles, remotos y audio</string>
+    <string name="d_pad">Ver cada botón y palanca en vivo</string>
+    <string name="d_input">Panel táctil como puntero o pantalla táctil, por app</string>
+    <string name="d_storage">Espacio libre, interno y USB</string>
+    <string name="d_library">Servidor de la biblioteca de juegos, Fase 5</string>
+    <string name="d_adb">Direcciones y el puerto ADB de red</string>
+    <string name="d_about">Versión, equipo y estado de Device Owner</string>
+    <string name="d_sleep">Apagar la pantalla</string>
+    <string name="d_reboot">Reiniciar la caja</string>
+    <string name="settings_effects">Efectos: %1$s</string>
+    <string name="effects_full">Completos</string>
+    <string name="effects_lite">Ligeros (planos, según la especificación)</string>
+    <string name="act_open">Abrir</string>
+    <string name="act_details">Detalles</string>
+    <string name="act_options">Opciones</string>
+    <string name="touchpad_touch">Panel táctil: pantalla táctil</string>
+    <string name="touchpad_pointer">Panel táctil: puntero</string>
+    <string name="opt_touchpad_touch">Panel táctil en esta app: pantalla táctil</string>
+    <string name="opt_touchpad_pointer">Panel táctil en esta app: puntero</string>
+    <string name="input_latency">Latencia: %1$s us de promedio, %2$s us máximo (%3$s cuadros)</string>
+    <string name="input_running">inputd: funcionando</string>
+    <string name="input_stopped">inputd: detenido (necesita Shizuku: %1$s)</string>
+    <string name="input_pad">Panel táctil del DS4: %1$s</string>
+    <string name="input_no_pad">Panel táctil del DS4: no conectado</string>
+    <string name="input_mode">Modo ahora: %1$s</string>
+    <string name="input_app">App en pantalla: %1$s</string>
+    <string name="input_no_latency">Latencia: toca el panel en modo táctil para medirla</string>
+    <string name="input_help">Share + clic del panel cambia entre puntero y pantalla táctil. Y en una app fija su modo.</string>
+    <string name="input_error">Último error: %1$s</string>    <string name="lib_no_server">No hay servidor de biblioteca. Añádelo en Sistema, Sincronizar biblioteca.</string>
+    <string name="lib_not_lan">El servidor de la biblioteca tiene que estar en tu red de casa.</string>
+    <string name="lib_loading">Cargando la biblioteca…</string>
+    <string name="lib_token_wrong">El servidor pide otro token.</string>
+    <string name="lib_count">%1$d elementos en la biblioteca</string>
+    <string name="lib_unreachable">No se pudo llegar a la biblioteca: %1$s</string>
+    <string name="lib_starting">Empezando</string>
+    <string name="lib_done">%1$s está listo</string>
+    <string name="lib_failed">%1$s falló: %2$s</string>
+    <string name="lib_downloading">Descargando %1$d%%</string>
+    <string name="lib_verifying">Comprobando la descarga</string>
+    <string name="lib_bad_sha">La descarga está dañada (la suma de verificación no coincide). Inténtalo otra vez.</string>
+    <string name="lib_installing">Instalando</string>
+    <string name="lib_removing">Quitando</string>
+    <string name="lib_removed">%1$s quitado</string>
+    <string name="lib_no_usb">No hay ninguna unidad USB montada.</string>
+    <string name="lib_needs_shizuku">Para colocar los datos del juego hace falta Shizuku.</string>
+    <string name="lib_unpacking">Descomprimiendo</string>
+    <string name="lib_bad_entry">Se rechazó un archivo fuera del paquete: %1$s</string>
+    <string name="lib_no_space">No hay espacio libre suficiente para estos datos.</string>
+    <string name="lib_placing">Copiando los datos del juego</string>
+    <string name="lib_not_writable">No se puede escribir en esta ubicación: %1$s</string>
+    <string name="lib_over_budget">Se supera el límite de %1$d GB de datos aun quitando los datos más antiguos.</string></resources>

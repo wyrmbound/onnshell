@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="row_games">Games</string>
+    <string name="row_apps">Apps</string>
+    <string name="row_system">System</string>
+    <string name="row_power">Power</string>
+    <string name="games_empty">No games yet. Library sync comes in Phase 5.</string>
+    <string name="apps_empty">No apps here. Add them in OnnShell settings, Apps on home.</string>
+
+    <string name="sys_android_settings">Android settings</string>
+    <string name="sys_shell_settings">OnnShell settings</string>
+    <string name="sys_wifi">Wi-Fi</string>
+    <string name="sys_ethernet">Ethernet</string>
+    <string name="sys_bluetooth">Bluetooth</string>
+    <string name="sys_controller">Controller test</string>
+    <string name="sys_input">Input mode</string>
+    <string name="sys_storage">Storage</string>
+    <string name="sys_library">Library sync</string>
+    <string name="sys_adb">ADB status</string>
+    <string name="sys_about">About</string>
+    <string name="power_sleep">Sleep</string>
+    <string name="power_reboot">Reboot</string>
+
+    <string name="on">on</string>
+    <string name="off">off</string>
+    <string name="eth_none">No Ethernet link. Plug in a cable to see its address here.</string>
+    <string name="adb_usb">ADB enabled: %1$s</string>
+    <string name="adb_port">Network ADB port 5555: %1$s</string>
+    <string name="adb_open">listening</string>
+    <string name="adb_closed">closed</string>
+    <string name="adb_wireless">Wireless debugging: %1$s</string>
+    <string name="storage_line">%1$s: %2$.1f GB free of %3$.1f GB</string>
+    <string name="storage_internal">Internal</string>
+    <string name="storage_no_usb">No USB drive mounted</string>
+    <string name="library_phase5">The game library server and sync come in Phase 5.</string>
+
+    <string name="reboot_confirm">Reboot the box now?</string>
+    <string name="yes_reboot">Reboot</string>
+    <string name="cancel">Cancel</string>
+    <string name="launch_failed">Could not open %1$s</string>
+
+    <string name="details_title">Details</string>
+    <string name="options_title">Options</string>
+    <string name="no_options">No options for this item.</string>
+    <string name="no_details">No details for this item.</string>
+    <string name="opt_remove_home">Remove from Apps row</string>
+    <string name="opt_app_info">App info</string>
+    <string name="opt_to_games">Move to Games</string>
+    <string name="opt_to_apps">Move back to Apps</string>
+    <string name="detail_package">Package: %1$s</string>
+    <string name="detail_version">Version: %1$s</string>
+    <string name="detail_updated">Updated: %1$s</string>
+    <string name="detail_game">Game</string>
+    <string name="detail_app">App</string>
+
+    <string name="menu_title">Quick menu</string>
+    <string name="menu_close">Close</string>
+
+    <string name="settings_accent">Accent color: %1$s</string>
+    <string name="settings_language">Language: %1$s</string>
+    <string name="settings_apps_on_home">Apps on home</string>
+    <string name="lang_name">English</string>
+    <string-array name="accent_names">
+        <item>Sunset</item>
+        <item>Cyan</item>
+        <item>Amber</item>
+        <item>Green</item>
+        <item>Magenta</item>
+        <item>Red</item>
+        <item>White</item>
+    </string-array>
+
+    <string name="controller_held">Held: %1$s</string>
+    <string name="controller_last">Last button: %1$s</string>
+    <string name="controller_exit">Exit: Share and Options together, or the remote\'s Back.</string>
+    <string name="back_hint">B: back</string>
+
+    <string name="games_placeholder">Your games appear here</string>
+    <string name="hint_app">A open  ·  X details  ·  Y options</string>
+    <string name="hint_item">A open</string>
+    <string name="d_android">All Android TV settings</string>
+    <string name="d_shell">Accent color, language and apps on home</string>
+    <string name="d_wifi">Networks and connection</string>
+    <string name="d_eth">Cable connection and address</string>
+    <string name="d_bt">Pair controllers, remotes and audio</string>
+    <string name="d_pad">See every button and stick live</string>
+    <string name="d_input">Touchpad as pointer or touchscreen, per app</string>
+    <string name="d_storage">Free space, internal and USB</string>
+    <string name="d_library">Game library server, Phase 5</string>
+    <string name="d_adb">Addresses and the network ADB port</string>
+    <string name="d_about">Version, device and Device Owner status</string>
+    <string name="d_sleep">Turn the screen off</string>
+    <string name="d_reboot">Restart the box</string>
+    <string name="settings_effects">Effects: %1$s</string>
+    <string name="effects_full">Full</string>
+    <string name="effects_lite">Lite (flat, per spec)</string>
+    <string name="act_open">Open</string>
+    <string name="act_details">Details</string>
+    <string name="act_options">Options</string>
+    <string name="touchpad_touch">Touchpad: touchscreen</string>
+    <string name="touchpad_pointer">Touchpad: pointer</string>
+    <string name="opt_touchpad_touch">Touchpad in this app: touchscreen</string>
+    <string name="opt_touchpad_pointer">Touchpad in this app: pointer</string>
+    <string name="input_latency">Latency: %1$s us average, %2$s us max (%3$s frames)</string>
+    <string name="input_running">inputd: running</string>
+    <string name="input_stopped">inputd: not running (needs Shizuku: %1$s)</string>
+    <string name="input_pad">DS4 touchpad: %1$s</string>
+    <string name="input_no_pad">DS4 touchpad: not connected</string>
+    <string name="input_mode">Mode now: %1$s</string>
+    <string name="input_app">App on screen: %1$s</string>
+    <string name="input_no_latency">Latency: touch the pad in TOUCH mode to measure</string>
+    <string name="input_help">Share + pad click switches pointer and touchscreen. Y on an app sets its mode.</string>
+    <string name="input_error">Last error: %1$s</string>    <string name="lib_no_server">No library server set. Add it in System, Library sync.</string>
+    <string name="lib_not_lan">The library server must be on your home network.</string>
+    <string name="lib_loading">Loading the library…</string>
+    <string name="lib_token_wrong">The server wants a different token.</string>
+    <string name="lib_count">%1$d items in the library</string>
+    <string name="lib_unreachable">Could not reach the library: %1$s</string>
+    <string name="lib_starting">Starting</string>
+    <string name="lib_done">%1$s is ready</string>
+    <string name="lib_failed">%1$s failed: %2$s</string>
+    <string name="lib_downloading">Downloading %1$d%%</string>
+    <string name="lib_verifying">Checking the download</string>
+    <string name="lib_bad_sha">The download is damaged (checksum mismatch). Try again.</string>
+    <string name="lib_installing">Installing</string>
+    <string name="lib_removing">Removing</string>
+    <string name="lib_removed">%1$s removed</string>
+    <string name="lib_no_usb">No USB drive is mounted.</string>
+    <string name="lib_needs_shizuku">Placing game data needs Shizuku running.</string>
+    <string name="lib_unpacking">Unpacking</string>
+    <string name="lib_bad_entry">Refused a file outside the pack: %1$s</string>
+    <string name="lib_no_space">Not enough free space for this data.</string>
+    <string name="lib_placing">Copying game data</string>
+    <string name="lib_not_writable">This location is not writable: %1$s</string>
+    <string name="lib_over_budget">Over the %1$d GB data budget even after removing older game data.</string></resources>
