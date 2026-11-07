@@ -31,6 +31,11 @@ object Policy {
     @Synchronized
     fun apply(ctx: Context): String {
         if (!isOwner(ctx)) return "not device owner"
+        // Wi-Fi was found off after a reboot (2026-11-06), which cut adb and Shizuku's self-start; owners may switch it on
+        runCatching {
+            val wm = ctx.getSystemService(android.net.wifi.WifiManager::class.java)
+            @Suppress("DEPRECATION") if (!wm.isWifiEnabled) wm.setWifiEnabled(true)
+        }
         val dpm = dpm(ctx)
         val admin = admin(ctx)
         val l = ledger(ctx)

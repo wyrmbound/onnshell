@@ -38,7 +38,8 @@ object ShizukuBoot {
         // adbd may not be listening yet right after boot: retry for about a minute
         repeat(12) { attempt ->
             val ok = runCatching {
-                Dadb.create("127.0.0.1", 5555, AdbKeyPair.read(priv, pub)).use { adb ->
+                // socket timeout: an unanswered "Allow USB debugging?" prompt must not block us (and `busy`) forever
+                Dadb.create("127.0.0.1", 5555, AdbKeyPair.read(priv, pub), 5_000, 30_000).use { adb ->
                     val r = adb.shell(STARTER)
                     Log.i(TAG, "starter exit ${r.exitCode}: ${r.allOutput.trim().lines().lastOrNull()}")
                 }

@@ -5,6 +5,9 @@
     <!-- ADB status screen: network addresses and a local check of port 5555 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Device owner turns Wi-Fi back on at startup (adb, Shizuku's self-start and the store all need it) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <!-- Which app is on screen, for per-app touchpad profiles. Granted as an app op in Phase 1 -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
