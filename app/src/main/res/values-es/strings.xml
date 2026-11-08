@@ -179,4 +179,7 @@
     <string name="store_needs">Necesita</string>
     <string name="store_warn_needs">Este port necesita: %1$s</string>
     <string name="settings_perf_hud">Panel de rendimiento: %1$s</string>
+    <string name="settings_corner_audio">Sonido del juego en la esquina: %1$s</string>
+    <string name="corner_audio_game">juego</string>
+    <string name="corner_audio_tv">app de TV</string>
 </resources>

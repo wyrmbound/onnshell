@@ -16,6 +16,8 @@ import java.net.ServerSocket
  */
 class AudioSink(private val rate: Int = 32000, private val channels: Int = 2) {
     private var server: ServerSocket? = null
+    /** Silences the game without stopping it (the corner window plays under another app's sound). */
+    @Volatile var muted = false
     private var thread: Thread? = null
 
     fun start() {
@@ -47,10 +49,12 @@ class AudioSink(private val rate: Int = 32000, private val channels: Int = 2) {
                     track.play()
                     val buf = ByteArray(min)
                     var total = 0L
+                    var applied = false
                     client.use { c ->
                         val input = c.getInputStream()
                         while (true) {
                             val n = input.read(buf); if (n <= 0) break
+                            if (muted != applied) { applied = muted; track.setVolume(if (applied) 0f else 1f) }
                             track.write(buf, 0, n); total += n  // blocking write paces the sender
                         }
                     }

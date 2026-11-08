@@ -65,6 +65,9 @@
         <activity
             android:name=".display.ZeroCopyActivity"
             android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|navigation"
             android:taskAffinity="com.xplsh.onnshell.game"
             android:exported="true"
             android:excludeFromRecents="true"

@@ -76,9 +76,56 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         root.addView(view)
         hud = PerfHud(root)
         setContentView(root)
+        current = this
     }
 
     private lateinit var hud: PerfHud
+
+    // ---- Picture in picture (owner ask, 2026-11-09): the game in a corner while another app plays full screen. ----
+    // The corner window never gets key focus, so libonngrab (LD_PRELOAD in the run scripts) hands the pad to the game
+    // alone: SIGUSR1 grabs the game's evdev devices, SIGUSR2 releases them. While grabbed, PS and Share are seen only by
+    // the game, so libonngrab leaves flag files that the watcher below turns into "back to full screen" and "swap audio".
+    private var shareDown = 0L
+    private var pipWatch: Thread? = null
+
+    /** Shrinks the running game into the corner. Only for a real game session (not a test pattern). */
+    fun enterCorner() {
+        if (!GameSession.external || isInPictureInPictureMode) return
+        val ok = runCatching {
+            enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build())
+        }.onFailure { Log.w(TAG, "picture-in-picture refused: $it") }.getOrDefault(false)
+        Log.i(TAG, "corner: $ok")
+    }
+
+    /** Back to full screen: bringing this singleTask activity to the front takes it out of the corner. */
+    fun leaveCorner() {
+        startActivity(android.content.Intent(this, ZeroCopyActivity::class.java)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            .putExtra("expand", true))
+    }
+
+    override fun onPictureInPictureModeChanged(inCorner: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(inCorner, newConfig)
+        GameSession.inCorner = inCorner
+        GameSession.signal(if (inCorner) "USR1" else "USR2")
+        audio?.muted = inCorner && !com.xplsh.onnshell.data.Prefs.cornerGameAudio(this)
+        hud.show(!inCorner && com.xplsh.onnshell.data.Prefs.perfHud(this))
+        if (inCorner) watchCorner() else { pipWatch?.interrupt(); pipWatch = null }
+        Log.i(TAG, "corner mode $inCorner, game audio ${audio?.muted == false}")
+    }
+
+    private fun watchCorner() {
+        if (pipWatch != null) return
+        pipWatch = Thread({
+            ShellUser.run("rm -f /data/local/tmp/onn-pip-exit /data/local/tmp/onn-pip-audio") // stale flags from an earlier session
+            while (!Thread.currentThread().isInterrupted) {
+                val got = ShellUser.output("cd /data/local/tmp && for f in onn-pip-exit onn-pip-audio; do [ -f \$f ] && rm \$f && echo \$f; done; true") ?: ""
+                if ("onn-pip-audio" in got) audio?.let { it.muted = !it.muted; Log.i(TAG, "corner: game audio ${!it.muted}") }
+                if ("onn-pip-exit" in got) runOnUiThread { leaveCorner() }
+                try { Thread.sleep(300) } catch (_: InterruptedException) { break }
+            }
+        }, "pip-watch").also { it.start() }
+    }
     // The overlay setting is read on every return, so a change made in OnnShell settings while the game waits applies at once
     override fun onResume() { super.onResume(); hud.show(com.xplsh.onnshell.data.Prefs.perfHud(this)) }
     override fun onStop() { hud.stop(); super.onStop() }
@@ -88,6 +135,8 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
     // A second `am start` reaches the existing instance here (launchMode singleTask), so the old session's sockets
     // and bridge are torn down before the new one binds; stacking a second instance made 7331/7332 EADDRINUSE.
     override fun onNewIntent(intent: android.content.Intent) {
+        // Back from the corner window (PS, or the adb hook): the session keeps running, only the window grows
+        if (intent.getBooleanExtra("expand", false)) return
         super.onNewIntent(intent); setIntent(intent)
         // Coming back to a suspended game: surfaceCreated resumes it. Anything else is a fresh session.
         if (GameSession.suspended && !intent.getBooleanExtra("fresh", false)) return
@@ -209,8 +258,9 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
             }
         } catch (e: Exception) {
             Log.i(TAG, "stream ended: $e")
-            // The game exited or crashed (not us stopping): leave the black game screen, back to HOME
-            if (GameSession.external && !closing) runOnUiThread { if (!isFinishing) finish() }
+            // The game exited or crashed, or a test pattern (m4h) finished (not us stopping): leave the game screen, back to
+            // HOME. A finished test used to stay up showing its last frame, and BACK cannot close this screen.
+            if (!closing) runOnUiThread { if (!isFinishing) finish() }
         } finally { server = null; client = null }
     }
 
@@ -265,15 +315,23 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
     // BUTTON_B maps to BACK and would finish the activity mid-game. Long-press BACK is the exit.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_DOWN && event.isLongPress) { finish(); return true }
+        // Hold Share about a second: the game moves to the corner (the press itself still reaches the game through evdev)
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) shareDown = event.eventTime
+            if (event.action == KeyEvent.ACTION_UP && shareDown > 0 && event.eventTime - shareDown >= 800) enterCorner()
+            if (event.action == KeyEvent.ACTION_UP) shareDown = 0
+        }
         return true
     }
 
-    override fun onDestroy() { stop(); GameSession.endedAt = android.os.SystemClock.uptimeMillis(); super.onDestroy() }
+    override fun onDestroy() { pipWatch?.interrupt(); if (GameSession.inCorner) { GameSession.inCorner = false; GameSession.signal("USR2") }; current = null; stop(); GameSession.endedAt = android.os.SystemClock.uptimeMillis(); super.onDestroy() }
 
     companion object {
         private const val TAG = "M4"; private const val PB = "/data/local/tmp/pb"
         private const val M4RD = 0x4452344d // "M4RD" little-endian
         private const val M4RV = 0x5652344d // "M4RV"
+        /** The live game screen, for the adb corner hooks. */
+        @Volatile var current: ZeroCopyActivity? = null
     }
 }
 
@@ -284,6 +342,8 @@ object GameSession {
     /** When the last game screen closed. HOME ignores the pad briefly after it, so gameplay presses still in flight
      *  (d-pad + A) cannot walk the home screen into Power > Restart > Yes; that rebooted the box several times. */
     @Volatile var endedAt = 0L
+    /** The game is in the picture-in-picture corner (its pad is grabbed). */
+    @Volatile var inCorner = false
     /** Frames presented, for the performance overlay's fps. */
     val frames = java.util.concurrent.atomic.AtomicLong()
     private val bridgeTags = java.util.concurrent.atomic.AtomicInteger()

@@ -32,6 +32,10 @@ object Prefs {
     fun themeId(ctx: Context): String = sp(ctx).getString("theme", "slate") ?: "slate"
     fun setThemeId(ctx: Context, id: String) = sp(ctx).edit().putString("theme", id).apply()
 
+    /** Game sound while the game plays in the corner window: off by default, so the app behind it is heard. */
+    fun cornerGameAudio(ctx: Context) = sp(ctx).getBoolean("corner_audio", false)
+    fun setCornerGameAudio(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("corner_audio", on).apply()
+
     /** The in-game performance overlay (fps, temperature, memory). Off by default. */
     fun perfHud(ctx: Context) = sp(ctx).getBoolean("perf_hud", false)
     fun setPerfHud(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("perf_hud", on).apply()

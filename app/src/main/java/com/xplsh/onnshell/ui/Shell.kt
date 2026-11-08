@@ -176,6 +176,7 @@ fun Shell(resumes: Int) {
     var accentIx by remember { mutableIntStateOf(Prefs.accentIndex(ctx)) }
     var themeId by remember { mutableStateOf(Prefs.themeId(ctx)) }
     var perfHud by remember { mutableStateOf(Prefs.perfHud(ctx)) }
+    var cornerAudio by remember { mutableStateOf(Prefs.cornerGameAudio(ctx)) }
     LaunchedEffect(resumes) { themeId = Prefs.themeId(ctx) } // the THEME command and a relaunch change it without recreating us
     val theme = Themes.byId(themeId)
     val lite = Pad.lite
@@ -349,6 +350,9 @@ fun Shell(resumes: Int) {
                         stringResource(R.string.settings_effects, stringResource(if (lite) R.string.effects_lite else R.string.effects_full)) to {
                             Pad.lite = !lite
                             Prefs.setLite(ctx, Pad.lite)
+                        },
+                        stringResource(R.string.settings_corner_audio, stringResource(if (cornerAudio) R.string.corner_audio_game else R.string.corner_audio_tv)) to {
+                            cornerAudio = !cornerAudio; Prefs.setCornerGameAudio(ctx, cornerAudio)
                         },
                         stringResource(R.string.settings_perf_hud, stringResource(if (perfHud) R.string.on else R.string.off)) to {
                             perfHud = !perfHud; Prefs.setPerfHud(ctx, perfHud)
