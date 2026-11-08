@@ -38,6 +38,9 @@ class FileDropTest {
         val wants = setOf("baserom.us.z64", usSum)
         fun idx() = GameFiles.walk(listOf(dir)).let { GameFiles.index(it, GameFiles.hashExts(wants)) }
         assertEquals(GameFiles.Status.WRONG, GameFiles.status(wants, true, idx()))
+        // a listing with only a fingerprint and the file kind ("*.z64", see Catalog.wants)
+        assertEquals(GameFiles.Status.WRONG, GameFiles.status(setOf(usSum, "*.z64"), true, idx()))
+        assertEquals(GameFiles.Status.MISSING, GameFiles.status(setOf(usSum, "*.iso"), true, idx()))
         File(dir, "mario.z64").writeBytes(us) // any name, the fingerprint decides
         assertEquals(GameFiles.Status.READY, GameFiles.status(wants, true, idx()))
         assertEquals(GameFiles.Status.MISSING, GameFiles.status(setOf("other.wad"), true, idx()))

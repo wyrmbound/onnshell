@@ -163,8 +163,13 @@
     <string name="send_or_type">Or type this address in a browser:</string>
     <string name="send_where">Files go to the GameFiles folder on the box. The page closes when you leave this screen.</string>
     <string name="send_no_network">The box is not on a home network right now, so there is nowhere to send files to. Check Wi-Fi and try again.</string>
-    <string name="send_received">Received %1$d files</string>
+    <string name="send_received">Files received: %1$d</string>
     <string name="send_unlocked">Ready to play now: %1$s</string>
+    <string name="store_new_week">%1$d new</string>
+    <string name="store_stale">list offline %1$d d, using GitHub</string>
+    <string name="store_new">new</string>
+    <string name="store_updated">updated</string>
+    <string name="store_from_github">link from its GitHub project</string>
     <string name="store_needs_files">needs your game files</string>
     <string name="store_warn_medium">Rated %1$s on devices like this. It may stutter or not start. Get it anyway?</string>
     <string name="store_offline">Store needs the network</string>

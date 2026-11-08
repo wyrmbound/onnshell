@@ -937,6 +937,7 @@ internal fun TabPill(label: String, active: Boolean, accent: Accent, lite: Boole
                 label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                 color = if (active) (if (theme === Themes.SLATE) theme.bg else theme.text) else if (focused) theme.text else theme.text2,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 7.dp),
+                maxLines = 1, softWrap = false, // a pill short of room must never wrap into a tall blob
             )
         }
     }

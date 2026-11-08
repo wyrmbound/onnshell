@@ -15,15 +15,19 @@ object Speaker {
     /** Where game sound goes: the speaker when the setting is on, else the TV. */
     fun forGames(ctx: Context): AudioDeviceInfo? = if (Prefs.boxSpeaker(ctx)) device(ctx) else null
 
-    /** The boot chime, always on the box speaker. */
+    /** The boot chime, always on the box speaker; [done] runs when it has ended. */
     fun chime(ctx: Context, volume: Float = 1f, done: () -> Unit = {}): AudioDeviceInfo? {
         val d = device(ctx)
         val p = MediaPlayer.create(ctx, R.raw.onnshell_startup)
         if (p == null) { done(); return d }
         p.preferredDevice = d
         p.setVolume(volume, volume)
-        p.setOnCompletionListener { it.release(); done() }
+        // the last half second fades out instead of cutting off, like all OnnShell music
+        val h = android.os.Handler(android.os.Looper.getMainLooper())
+        val fade = Runnable { Lobby.fadeOut(h, p, volume, Lobby.FADE_MS) { } }
+        p.setOnCompletionListener { h.removeCallbacks(fade); it.release(); done() }
         p.start()
+        h.postDelayed(fade, (p.duration - Lobby.FADE_MS).coerceAtLeast(0))
         return d
     }
 }

@@ -99,10 +99,14 @@ fun Store(state: StoreState, accent: Accent, lite: Boolean, onGet: (Entry) -> Un
     val edge = if (theme.tabs == Tabs.LEFT_RAIL) 28.dp else 56.dp
     Column(Modifier.fillMaxSize().padding(start = edge, end = edge, top = 24.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(stringResource(R.string.store_title), fontFamily = theme.display, fontSize = if (theme.grid == Grid.STRIPS) 48.sp else 40.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 48.sp)
-            Spacer(Modifier.width(28.dp))
-            Text(stringResource(R.string.store_runs_here, state.visible.size), fontSize = 16.sp, color = theme.text2, modifier = Modifier.padding(bottom = 10.dp))
-            Spacer(Modifier.weight(1f))
+            // The count sits under the title: beside it, the row ran out of room and squeezed the last pill into a circle
+            Column(Modifier.weight(1f)) { // takes what the pills leave; its second line is cut, never the pills
+                Text(stringResource(R.string.store_title), fontFamily = theme.display, fontSize = if (theme.grid == Grid.STRIPS) 48.sp else 40.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 48.sp)
+                val count = stringResource(R.string.store_runs_here, state.visible.size) +
+                    (if (state.staleDays > 0) " · " + stringResource(R.string.store_stale, state.staleDays)
+                     else if (state.newCount > 0) " · " + stringResource(R.string.store_new_week, state.newCount) else "")
+                Text(count, fontSize = 13.sp, color = theme.text2, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 10.dp, end = 12.dp))
+            }
             SearchPill(state, accent, lite, Modifier.padding(bottom = 10.dp, end = 8.dp))
             Box(Modifier.padding(bottom = 10.dp, end = 8.dp)) { TabPill(stringResource(R.string.store_send_files), false, accent, lite) { onSendFiles() } }
             Row(Modifier.padding(bottom = 10.dp)) {
@@ -253,9 +257,9 @@ private fun Detail(e: Entry?, state: StoreState, accent: Accent, lite: Boolean) 
             if (entry.reports > 0) Text(stringResource(R.string.store_reports, entry.reports), fontSize = 12.sp, color = theme.text3, modifier = Modifier.padding(top = 4.dp))
             if (entry.requires.isNotEmpty()) {
                 Text(stringResource(R.string.store_needs), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.text2, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
-                // capped so the Get pill stays on screen; the Get warning shows every line in full
+                // capped at 5 lines so the Get pill stays whole (7 squeezed it under a two-line meta); the Get warning shows every line in full
                 // one line each, label in bold; the long fingerprint stays for the Get warning, which shows everything
-                Text(needsText(entry.requires.filterNot { it.startsWith("Fingerprint:") }), fontSize = 12.sp, lineHeight = 16.sp, color = theme.text2, maxLines = 7, overflow = TextOverflow.Ellipsis)
+                Text(needsText(entry.requires.filterNot { it.startsWith("Fingerprint:") }), fontSize = 12.sp, lineHeight = 16.sp, color = theme.text2, maxLines = 5, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.weight(1f))
             val installed = state.installed[entry.id] == true
@@ -284,6 +288,8 @@ private fun Toast(e: Entry, state: StoreState, modifier: Modifier) {
 @Composable
 private fun meta(e: Entry, state: StoreState): String {
     val parts = mutableListOf(e.type, e.engine, mb(e.size))
+    if (e.isNew()) parts.add(0, stringResource(R.string.store_new)) else if (e.isUpdated()) parts.add(0, stringResource(R.string.store_updated))
+    if (e.source == "github") parts += stringResource(R.string.store_from_github)
     when (state.files[e.id]) {
         com.xplsh.onnshell.data.GameFiles.Status.READY -> parts += stringResource(R.string.store_files_ready)
         com.xplsh.onnshell.data.GameFiles.Status.WRONG -> parts += stringResource(R.string.store_files_wrong)

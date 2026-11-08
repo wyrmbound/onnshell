@@ -50,6 +50,10 @@ object Prefs {
     fun boxSpeaker(ctx: Context) = sp(ctx).getBoolean("box_speaker", false)
     fun setBoxSpeaker(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("box_speaker", on).apply()
 
+    /** Extra Store lists in the Recompa index format (https only), next to the built-in one. Set over ADB: STORE_SOURCE. */
+    fun storeSources(ctx: Context): Set<String> = sp(ctx).getStringSet("store_sources", emptySet())!!.toSet()
+    fun setStoreSources(ctx: Context, s: Set<String>) = sp(ctx).edit().putStringSet("store_sources", s).apply()
+
     /** Lobby music on the home screen. On by default. */
     fun lobbyMusic(ctx: Context) = sp(ctx).getBoolean("lobby_music", true)
     fun setLobbyMusic(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("lobby_music", on).apply()

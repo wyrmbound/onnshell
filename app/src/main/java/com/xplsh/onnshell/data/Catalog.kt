@@ -39,8 +39,20 @@ data class Entry(
     val wants: Set<String> = emptySet(),
     /** The exact game version the port needs, one line each: curated (assets/requirements.json) first, then Recompa's assets[]. */
     val requires: List<String> = emptyList(),
+    /** The game's own GitHub project and the pattern of its APK there: the Store's way to it without any list ([Direct]). */
+    val repo: String? = null,
+    val pattern: String? = null,
+    /** The release this download is (its tag), when the game joined the list and when this release came out (epoch ms, 0 = unknown). */
+    val tag: String = "",
+    val addedAt: Long = 0,
+    val updatedAt: Long = 0,
+    /** Which list this came from: "recompa", an extra list's id, or "github" when the link was refreshed from the project itself. */
+    val source: String = "recompa",
 ) {
     val runnable get() = has32 || engine == "sdl2" || engine == "sdl3"
+    fun isNew(now: Long = System.currentTimeMillis()) = addedAt > 0 && now - addedAt < WEEK_MS
+    fun isUpdated(now: Long = System.currentTimeMillis()) = !isNew(now) && updatedAt > 0 && now - updatedAt < WEEK_MS
+    private companion object { const val WEEK_MS = 7 * 24 * 3600 * 1000L }
 }
 
 /** What the engine survey (onn-pathb/apkrun/survey.json, shipped as assets/survey.json) knows about one APK, keyed by its URL. */
@@ -58,10 +70,14 @@ object Catalog {
     // An hour: new ports and fresh reports show up the same evening (owner ask, 2026-11-09); Retry forces it sooner
     private const val TTL_MS = 3600 * 1000L
 
-    fun parse(json: String, survey: Map<String, Survey>, curated: Map<String, List<String>> = emptyMap()): List<Entry> {
+    fun parse(json: String, survey: Map<String, Survey>, curated: Map<String, List<String>> = emptyMap(), source: String = "recompa"): List<Entry> {
         val ports = JSONObject(json).optJSONArray("ports") ?: JSONArray()
-        return (0 until ports.length()).mapNotNull { i -> entry(ports.getJSONObject(i), survey, curated) }
+        // one odd listing must not take the whole list down with it
+        return (0 until ports.length()).mapNotNull { i -> runCatching { entry(ports.getJSONObject(i), survey, curated)?.copy(source = source) }.getOrNull() }
     }
+
+    /** A fetched list may replace the saved copy only if it really is a list with games in it (not an error page, not an emptied index). */
+    fun usable(json: String) = runCatching { JSONObject(json).getJSONArray("ports").length() > 0 }.getOrDefault(false)
 
     /** assets/requirements.json: port id -> the lines shown in the Store (see [Requirements]). */
     fun parseRequirements(json: String): Map<String, List<String>> = Requirements.parse(json).mapValues { it.value.lines }
@@ -130,6 +146,9 @@ object Catalog {
             requires = ((curated[p.getString("id").lowercase()] ?: emptyList()) + requiredLines(p.optJSONArray("assets"))).ifEmpty {
                 if (p.has("assets") || Regex("requires your|your own|game files", RegexOption.IGNORE_CASE).containsMatchIn(desc)) listOf(unknownVersion(platform)) else emptyList()
             },
+            repo = fork.optString("repo").ifEmpty { null }, pattern = fork.optString("asset_pattern").ifEmpty { null },
+            tag = fork.optJSONObject("release")?.optString("tag").orEmpty(),
+            addedAt = isoMs(p.optString("added_at")), updatedAt = isoMs(fork.optJSONObject("release")?.optString("published_at")),
         )
     }
 
@@ -139,7 +158,13 @@ object Catalog {
             val a = assets!!.getJSONObject(i)
             a.optJSONObject("delivery")?.optString("filename")?.ifEmpty { null }?.let { out += it.lowercase() }
             val acc = a.optJSONArray("accepted") ?: continue
-            for (j in 0 until acc.length()) acc.getJSONObject(j).optString("sha1").ifEmpty { null }?.let { out += it.lowercase() }
+            for (j in 0 until acc.length()) acc.getJSONObject(j).let { v ->
+                v.optString("sha1").ifEmpty { null }?.let { out += it.lowercase() }
+                // "*.z64": the kind of file, never a real name. It tells the Store a file of that kind is on the box
+                // (so a wrong version can be told from nothing at all) and which extensions are worth fingerprinting.
+                v.optString("format").ifEmpty { null }?.let { out += "*." + it.lowercase() }
+            }
+            a.optJSONArray("convert_from")?.let { c -> for (j in 0 until c.length()) out += "*." + c.getString(j).lowercase() }
         }
         return out
     }
@@ -169,18 +194,66 @@ object Catalog {
     }
     private val DOTNET_LIBS = setOf("libmonodroid.so", "libmonosgen-2.0.so", "libxamarin-app.so")
 
-    private fun cacheFile(ctx: Context) = File(ctx.cacheDir, "recompa-index.json")
+    /** Where the Store's lists come from: Recompa, then any extra lists in the same format (Prefs.storeSources). The first listing of an id wins. */
+    fun sources(ctx: Context): List<Pair<String, String>> =
+        listOf("recompa" to INDEX_URL) + Prefs.storeSources(ctx).sorted().map { "x" + Integer.toHexString(it.hashCode()) to it }
 
-    /** The listable entries, from the network when the cache is older than a day (or [force]), else from the cache. */
-    suspend fun load(ctx: Context, force: Boolean = false, fetch: (String) -> String = ::http): List<Entry> = withContext(Dispatchers.IO) {
-        val survey = runCatching { ctx.assets.open("survey.json").bufferedReader().use { parseSurvey(it.readText()) } }.getOrDefault(emptyMap())
-        val curated = runCatching { ctx.assets.open("requirements.json").bufferedReader().use { parseRequirements(it.readText()) } }.getOrDefault(emptyMap())
-        val cache = cacheFile(ctx)
-        val fresh = cache.exists() && System.currentTimeMillis() - cache.lastModified() < TTL_MS
-        val json = if (fresh && !force) cache.readText() else runCatching { fetch(INDEX_URL).also { cache.writeText(it) } }
-            .getOrElse { e -> if (cache.exists()) cache.readText() else throw IOException("Store needs the network", e) }
-        listable(parse(json, survey, curated))
+    /** The last good copy of a list. In filesDir, not the cache: it has to outlive a low-storage cleanup and the list's home going away. */
+    private fun saved(ctx: Context, id: String) = File(ctx.filesDir, "store-$id.json")
+    /** When the Recompa list was last fetched successfully (0 = never), and for how many whole days it has been out of reach. */
+    fun savedAt(ctx: Context) = saved(ctx, "recompa").lastModified()
+    fun staleDays(ctx: Context) = savedAt(ctx).let { if (it == 0L) 0 else ((System.currentTimeMillis() - it) / (24 * 3600 * 1000L)).toInt() }
+
+    private fun text(ctx: Context, id: String, url: String, force: Boolean, fetch: (String) -> String): String? {
+        val f = saved(ctx, id)
+        if (id == "recompa" && !f.exists()) File(ctx.cacheDir, "recompa-index.json").takeIf { it.exists() }?.copyTo(f) // where older builds kept it
+        if (f.exists() && !force && System.currentTimeMillis() - f.lastModified() < TTL_MS) return f.readText()
+        return runCatching {
+            fetch(url).also { t ->
+                require(usable(t)) { "not a game list" }
+                val tmp = File(f.path + ".tmp"); tmp.writeText(t); check(tmp.renameTo(f))
+            }
+        }.getOrElse { if (f.exists()) f.readText() else null }
     }
+
+    /** Everything the lists hold, before the "runs here" filter: what [follow] looks through. */
+    @Volatile private var lastAll: List<Entry> = emptyList()
+
+    /**
+     * The listable entries. Each list comes from the network when its saved copy is older than an hour (or [force]),
+     * else from that copy; a list that cannot be reached keeps serving its last good copy for as long as it takes.
+     */
+    suspend fun load(ctx: Context, force: Boolean = false, fetch: (String) -> String = ::http): List<Entry> = withContext(Dispatchers.IO) {
+        val survey = runCatching { ctx.assets.open("survey.json").bufferedReader().use { parseSurvey(it.readText()) } }.getOrDefault(emptyMap()) + Probes.all(ctx)
+        val curated = runCatching { ctx.assets.open("requirements.json").bufferedReader().use { parseRequirements(it.readText()) } }.getOrDefault(emptyMap())
+        val lists = sources(ctx).mapNotNull { (id, url) -> text(ctx, id, url, force, fetch)?.let { id to it } }
+        if (lists.isEmpty()) throw IOException("Store needs the network")
+        val seen = HashSet<String>()
+        val all = lists.flatMap { (id, json) -> runCatching { parse(json, survey, curated, id) }.getOrDefault(emptyList()) }.filter { seen.add(it.id) }
+        lastAll = Direct.apply(ctx, all, savedAt(ctx))
+        listable(lastAll)
+    }
+
+    /**
+     * The Store's upkeep after a load, off the screen's way: judge the downloads nothing is known about yet ([Probes]),
+     * and when the Recompa list has been out of reach for a day, ask each game's GitHub project directly ([Direct]),
+     * installed games first. True when the list should be loaded again.
+     */
+    suspend fun follow(ctx: Context, installed: Set<String> = emptySet()): Boolean {
+        var changed = Probes.learn(ctx, lastAll) > 0
+        if (staleDays(ctx) >= 1) changed = Direct.sweep(ctx, lastAll, installed) > 0 || changed
+        return changed
+    }
+
+    /** For an install while the list is out of reach: the game's newest release straight from its project, else the entry as listed. */
+    suspend fun latest(ctx: Context, e: Entry): Entry {
+        if (staleDays(ctx) < 1) return e
+        val r = runCatching { Direct.check(ctx, e) }.getOrNull()
+        return if (Direct.newer(e, r, savedAt(ctx))) e.copy(url = r!!.url, size = r.size, sha256 = r.sha256, tag = r.tag) else e
+    }
+
+    /** Test hook: the full entry (listable or not) for an id, after a load. */
+    fun any(id: String) = lastAll.firstOrNull { it.id == id }
 
     fun http(url: String): String {
         val c = URL(url).openConnection() as HttpURLConnection

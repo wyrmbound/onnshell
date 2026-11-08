@@ -26,6 +26,26 @@ class CommandReceiver : BroadcastReceiver() {
                     val d = com.xplsh.onnshell.data.Speaker.chime(ctx, intent.getFloatExtra("vol", 0.3f))
                     "speaker=${d?.let { "${it.productName} id ${it.id}" } ?: "none (default output)"}"
                 }
+                "STORE_FILES" -> com.xplsh.onnshell.data.StoreState.current?.let { st -> // which Store games have their files on the box
+                    st.files.entries.groupBy({ it.value }, { it.key }).entries.joinToString(" ") { (k, v) -> if (v.size <= 12) "$k=$v" else "$k=${v.size}" }
+                } ?: "no store yet"
+                // Extra Store lists (Recompa index format): --es url U adds, --ez remove true takes it out; no url lists them
+                "STORE_SOURCE" -> {
+                    val p = com.xplsh.onnshell.data.Prefs; val url = intent.getStringExtra("url")
+                    if (url != null && !url.startsWith("https://")) return fail("https only")
+                    if (url != null) p.setStoreSources(ctx, if (intent.getBooleanExtra("remove", false)) p.storeSources(ctx) - url else p.storeSources(ctx) + url)
+                    com.xplsh.onnshell.data.Catalog.sources(ctx).joinToString(" ") { it.second }
+                }
+                // The second source: ask a game's own GitHub project for its latest release (--es id I); the answer goes to logcat tag Store
+                "STORE_DIRECT" -> {
+                    val e = com.xplsh.onnshell.data.Catalog.any(intent.getStringExtra("id") ?: return fail("missing --es id")) ?: return fail("no such game (open the Store first)")
+                    val app = ctx.applicationContext
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        val r = runCatching { com.xplsh.onnshell.data.Direct.check(app, e) }
+                        android.util.Log.i("Store", "direct ${e.id} (${e.repo}): list has ${e.tag}, GitHub says ${r.getOrNull()?.let { "${it.tag}, ${it.size shr 20} MB, ${it.url}" } ?: "nothing: ${r.exceptionOrNull()?.message}"}")
+                    }
+                    "asking GitHub about ${e.repo}"
+                }
                 "SEND_FILES" -> { // upload page test: --ez on true|false (the screen normally opens and closes it)
                     val d = com.xplsh.onnshell.data.FileDrop
                     if (intent.getBooleanExtra("on", true)) d.start() ?: "no home network" else { d.stop(); "stopped" }
@@ -34,7 +54,7 @@ class CommandReceiver : BroadcastReceiver() {
                     val l = com.xplsh.onnshell.data.Lobby
                     if (intent.getBooleanExtra("clock", false)) l.forceNight = null
                     else if (intent.hasExtra("night")) l.forceNight = intent.getBooleanExtra("night", false)
-                    android.os.Handler(android.os.Looper.getMainLooper()).post { if (l.front) { l.stop(); l.play(ctx) } } // only while home is in front
+                    android.os.Handler(android.os.Looper.getMainLooper()).post { if (l.front) l.play(ctx) } // only while home is in front; a change of tune fades over
                     "lobby night=${l.isNight()} force=${l.forceNight} on=${com.xplsh.onnshell.data.Prefs.lobbyMusic(ctx)}"
                 }
                 "EFFECTS" -> { // UI setting, for performance tests: --ez lite true|false, applies live

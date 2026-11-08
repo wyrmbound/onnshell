@@ -21,7 +21,15 @@ class StoreState(
     private val isInstalled: (id: String) -> Boolean,
     private val installer: suspend (Entry, onProgress: (Float, String) -> Unit) -> Result<Unit>,
     private val scanner: suspend (List<Entry>) -> Map<String, GameFiles.Status> = { emptyMap() },
+    /** The upkeep after a load (Catalog.follow); true when the list should be loaded again. */
+    private val follower: suspend (installed: Set<String>) -> Boolean = { false },
+    private val staleDaysNow: () -> Int = { 0 },
 ) {
+    /** Whole days the main list has been out of reach (0 = it is current): the Store says so and goes to the projects directly. */
+    var staleDays by mutableIntStateOf(0); private set
+    /** Games that joined the list in the last week. */
+    val newCount get() = entries.count { it.isNew() }
+    private var following = false
     var entries by mutableStateOf<List<Entry>>(emptyList()); private set
     var error by mutableStateOf<String?>(null); private set
     var loading by mutableStateOf(false); private set
@@ -74,6 +82,15 @@ class StoreState(
                 .onSuccess { list -> entries = list; error = null; list.forEach { installed[it.id] = isInstalled(it.id) }; scanFiles() }
                 .onFailure { error = it.message ?: it.toString() }
             loading = false
+            staleDays = staleDaysNow()
+            // Upkeep, after the list is on screen: new and updated downloads get judged, and a list that is out of
+            // reach is topped up from the games' own projects. One round at a time.
+            if (error == null && !following) {
+                following = true
+                val again = runCatching { follower(installed.filterValues { it }.keys) }.getOrDefault(false)
+                if (again) runCatching { loader(false) }.onSuccess { list -> entries = list; list.forEach { installed[it.id] = isInstalled(it.id) }; scanFiles() }
+                following = false
+            }
         }
     }
 
@@ -112,7 +129,10 @@ class StoreState(
             scope,
             loader = { force -> Catalog.load(ctx, force) },
             isInstalled = { id -> GameInstaller.installed(ctx, id, current?.entry(id)?.pkg) }, // entries are set just before this runs
-            installer = { e, p -> GameInstaller.install(ctx, e.id, e.url, e.sha256, e.size, p) },
+            // while the list is out of reach, an install asks the game's own project for its newest release first
+            installer = { e, p -> Catalog.latest(ctx, e).let { f -> GameInstaller.install(ctx, f.id, f.url, f.sha256, f.size, p) } },
+            follower = { installed -> Catalog.follow(ctx, installed) },
+            staleDaysNow = { Catalog.staleDays(ctx) },
             scanner = { list ->
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     GameFiles.grantStorage(ctx.packageName)

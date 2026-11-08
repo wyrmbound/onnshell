@@ -34,7 +34,7 @@ object GameInstaller {
     /** The APK's own SDL is dropped: our libSDL2/libSDL3 in pb replace it. */
     private val OUR_SDL = setOf("libSDL2.so", "libSDL3.so")
 
-    enum class Engine { SDL2, SDL3, GAMEMAKER, UNITY, GODOT, OTHER, NONE }
+    enum class Engine { SDL2, SDL3, GAMEMAKER, UNITY, GODOT, DOTNET, OTHER, NONE }
     data class Probe(val engine: Engine, val has32: Boolean, val has64: Boolean) {
         /** Can it run here: installs natively, or goes through the 64-bit runner. */
         val runnable get() = has32 || engine == Engine.SDL2 || engine == Engine.SDL3
@@ -57,6 +57,8 @@ object GameInstaller {
             "libyoyo.so" in libs -> Engine.GAMEMAKER
             "libunity.so" in libs || "libil2cpp.so" in libs -> Engine.UNITY
             libs.any { it.startsWith("libgodot") } -> Engine.GODOT
+            // .NET for Android bundles libSDL but starts from Java, which the 64-bit runner cannot run (same rule as Catalog.parseSurvey)
+            libs.any { it in setOf("libmonodroid.so", "libmonosgen-2.0.so", "libxamarin-app.so") } -> Engine.DOTNET
             "libSDL3.so" in libs -> Engine.SDL3
             "libSDL2.so" in libs -> Engine.SDL2
             else -> Engine.OTHER
