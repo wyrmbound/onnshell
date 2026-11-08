@@ -28,6 +28,10 @@ object Prefs {
     fun accentIndex(ctx: Context) = sp(ctx).getInt("accent_v2", 0).coerceIn(ACCENTS.indices)
     fun setAccentIndex(ctx: Context, i: Int) = sp(ctx).edit().putInt("accent_v2", i).apply()
 
+    /** Which of the three looks (ui/Themes.kt) the home screen uses. */
+    fun themeId(ctx: Context): String = sp(ctx).getString("theme", "slate") ?: "slate"
+    fun setThemeId(ctx: Context, id: String) = sp(ctx).edit().putString("theme", id).apply()
+
     /** Lite effects: the spec's flat look (no blur, no transparency, no drifting background). */
     fun lite(ctx: Context) = sp(ctx).getBoolean("lite", false)
     fun setLite(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("lite", on).apply()

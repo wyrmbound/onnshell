@@ -50,7 +50,7 @@ Method for everything approved: `pm disable-user --user 0 <pkg>`, ledger first, 
 | com.droidlogic.* (tv.settings, mictoggle, connecteddevices, overlays) | Settings, CEC, display, mic switch |
 | com.android.bluetooth, com.android.inputdevices, com.android.systemui, com.android.tv.settings, com.google.android.packageinstaller, com.google.android.permissioncontroller, com.android.shell, com.android.networkstack*, com.android.wifi.*, providers | Spec must keep list (Bluetooth, input, settings, installer, system UI, Wi-Fi, Ethernet, Shizuku) |
 | com.google.android.inputmethod.latin, com.google.android.tts, com.google.android.marvin.talkback, com.google.android.webview | Keyboard, speech, accessibility, WebView |
-| Your own streaming apps | Not bloat. Which ones show on the Apps row is the Phase 3 whitelist |
+| Your apps: Netflix, Disney+, HBO Max, Prime Video, YouTube, Mercado Play | Not bloat. Which ones show on the Apps row is the Phase 3 whitelist |
 
 ## Result (2026-11-05)
 

@@ -8,10 +8,17 @@
     <!-- Device owner turns Wi-Fi back on at startup (adb, Shizuku's self-start and the store all need it) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- Store: games with a 32-bit build install as normal apps (silent as Device Owner) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Which app is on screen, for per-app touchpad profiles. Granted as an app op in Phase 1 -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+
+    <!-- OnnShell's file picker serves the drives to games (the box has no document picker). Granted through Shizuku -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -58,9 +65,40 @@
         <activity
             android:name=".display.ZeroCopyActivity"
             android:launchMode="singleTask"
+            android:taskAffinity="com.xplsh.onnshell.game"
             android:exported="true"
             android:excludeFromRecents="true"
             android:screenOrientation="landscape" />
+
+        <!-- Document picker for games ("pick your ROM"): the box ships no DocumentsUI -->
+        <activity
+            android:name=".files.PickActivity"
+            android:exported="true"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.OPEN_DOCUMENT" />
+                <action android:name="android.intent.action.GET_CONTENT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.OPENABLE" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.OPEN_DOCUMENT_TREE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- The picker's results are content:// URIs from this provider (document id = absolute path) -->
+        <provider
+            android:name=".files.StorageDocs"
+            android:authorities="${applicationId}.files"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.provider.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
 
         <receiver
             android:name=".admin.ShellAdmin"

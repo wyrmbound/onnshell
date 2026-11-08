@@ -56,6 +56,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.tv:tv-material:1.0.0")
+    implementation("io.coil-kt.coil3:coil-compose:3.0.4") // cover art with cache and crossfade
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
     // Shizuku: run commands as the shell user (closing apps; the touchpad in Phase 4)
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")

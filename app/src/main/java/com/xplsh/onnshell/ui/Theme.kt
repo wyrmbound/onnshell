@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.Shader
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -17,11 +18,11 @@ import com.xplsh.onnshell.R
 import com.xplsh.onnshell.data.Accent
 
 object Ui {
-    val BG = Color(0xFF0C0C10)
-    val SURFACE = Color(0xFF1B1B22)
-    val SURFACE_HI = Color(0xFF2A2A34)
-    val TEXT2 = Color(0xFFB4B4C2)
-    val TEXT3 = Color(0xFF6E6E7C)
+    val BG: Color @Composable get() = LocalTheme.current.bg
+    val SURFACE: Color @Composable get() = LocalTheme.current.surface
+    val SURFACE_HI: Color @Composable get() = LocalTheme.current.surfaceHi
+    val TEXT2: Color @Composable get() = LocalTheme.current.text2
+    val TEXT3: Color @Composable get() = LocalTheme.current.text3
 }
 
 /**

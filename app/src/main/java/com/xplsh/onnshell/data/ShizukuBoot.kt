@@ -21,6 +21,17 @@ object ShizukuBoot {
             "cp \"\$LIB/arm/libshizuku.so\" /data/local/tmp/shizuku_starter && chmod 700 /data/local/tmp/shizuku_starter && " +
             "/data/local/tmp/shizuku_starter"
 
+    /**
+     * Flight recorder: Wi-Fi dies sometimes and only a reboot fixes it, which wipes logcat. Once per boot, keep the
+     * previous boot's log as onnlog.prev and record main/system/crash/kernel to a rotating file (6 x 4 MB).
+     * Read after the fact with: adb shell ls /data/local/tmp/onnlog.prev
+     */
+    private const val RECORDER =
+        "B=\$(cat /proc/sys/kernel/random/boot_id); D=/data/local/tmp/onnlog; " +
+            "if [ \"\$(cat \$D/boot_id 2>/dev/null)\" != \"\$B\" ]; then rm -rf \$D.prev; [ -d \$D ] && mv \$D \$D.prev; " +
+            "mkdir -p \$D; echo \$B > \$D/boot_id; " +
+            "setsid nohup logcat -b main,system,crash,kernel -v time -f \$D/log -r 4096 -n 6 </dev/null >/dev/null 2>&1 & fi"
+
     /** No-op when Shizuku already runs or a start is in flight. Never on the main thread, never throws. */
     fun ensure(ctx: Context) {
         if (busy || runCatching { Shizuku.pingBinder() }.getOrDefault(false)) return
@@ -40,6 +51,7 @@ object ShizukuBoot {
             val ok = runCatching {
                 // socket timeout: an unanswered "Allow USB debugging?" prompt must not block us (and `busy`) forever
                 Dadb.create("127.0.0.1", 5555, AdbKeyPair.read(priv, pub), 5_000, 30_000).use { adb ->
+                    runCatching { adb.shell(RECORDER) }
                     val r = adb.shell(STARTER)
                     Log.i(TAG, "starter exit ${r.exitCode}: ${r.allOutput.trim().lines().lastOrNull()}")
                 }

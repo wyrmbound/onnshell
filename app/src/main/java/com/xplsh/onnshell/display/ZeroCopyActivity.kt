@@ -37,27 +37,39 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
     private var bitmaps: Array<Bitmap?> = emptyArray()
     private var renderer: Process? = null
     private var server: ServerSocket? = null
+    private var client: java.net.Socket? = null // the game's connection; closing only the ServerSocket leaves serve() blocked in readFully
     private var thread: Thread? = null
     private var bridge: IBufferBridge? = null
-    private val audio by lazy { AudioSink(intent.getIntExtra("rate", 32000), intent.getIntExtra("channels", 2)) }
+    // Per session, from the launch that started it (a relaunch brings new rate/channels).
+    private var audio: AudioSink? = null
     private val paint = android.graphics.Paint()
 
-    // A fresh service tag per session: rebinding the same tag right after unbind raced inside Shizuku and the
-    // new bridge process never received the offer. Different tags are independent services.
-    private var session = 0
+    // A never-reused service tag per session, counted across activity instances: a clear-task relaunch is a new
+    // instance, and reusing "bridge0" while the old bridge0 was still dying handed us its dead binder.
+    private var tag = -1
     private lateinit var args: Shizuku.UserServiceArgs
-    private fun serviceArgs() = Shizuku.UserServiceArgs(ComponentName(packageName, BufferBridge::class.java.name))
-        .daemon(false).processNameSuffix("bridge" + (session++)).debuggable(false).version(1)
-    private val conn = object : ServiceConnection {
+    private var conn: ServiceConnection? = null
+    private fun serviceArgs(t: Int) = Shizuku.UserServiceArgs(ComponentName(packageName, BufferBridge::class.java.name))
+        // tag() is what Shizuku keys services by; with only a new process suffix every session shared the default tag,
+        // so a rebind matched the old unbound record (no onServiceConnected, or its dead binder).
+        .daemon(false).tag("bridge$t").processNameSuffix("bridge$t").debuggable(false).version(1)
+    /** Callbacks from an earlier session's bridge (late connect or death) must not touch this session. */
+    private fun connection(t: Int) = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+            if (t != tag) return
             bridge = IBufferBridge.Stub.asInterface(binder)
             Thread({ offer() }, "m4-offer").start()
         }
-        override fun onServiceDisconnected(name: ComponentName) { bridge = null }
+        override fun onServiceDisconnected(name: ComponentName) { if (t == tag) bridge = null }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Games read the pad through evdev, so Android sees no input and would sleep the box mid-game (10 min timer).
+        // The flag only holds while this screen is in front; leaving the game gives the normal sleep timer back.
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // ...but keeping it on never turns it on: a game started while the box slept ran on a dark TV with throttled acks
+        setTurnScreenOn(true); setShowWhenLocked(true)
         view = SurfaceView(this)
         view.holder.addCallback(this)
         setContentView(view)
@@ -76,14 +88,17 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
 
     private fun startSession() {
         if (!ShellUser.ready()) { Log.e(TAG, "Shizuku ${ShellUser.status()}"); ShellUser.requestIfNeeded(); return }
+        closing = false
         val w = intent.getIntExtra("w", 1280); val h = intent.getIntExtra("h", 720)
         // CPU usage bits make Arm gralloc pick a linear layout, which the renderer imports as-is.
         val usage = HardwareBuffer.USAGE_GPU_COLOR_OUTPUT or HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or
-            HardwareBuffer.USAGE_CPU_READ_OFTEN or HardwareBuffer.USAGE_CPU_WRITE_OFTEN
+            HardwareBuffer.USAGE_CPU_READ_OFTEN or HardwareBuffer.USAGE_CPU_WRITE_OFTEN or
+            (if (intent.getStringExtra("present") == "overlay") HardwareBuffer.USAGE_COMPOSER_OVERLAY else 0L)
         buffers = Array(3) { HardwareBuffer.create(w, h, HardwareBuffer.RGBA_8888, 1, usage) }
         bitmaps = arrayOfNulls(buffers.size)
         thread = Thread({ serve() }, "m4-recv").also { it.start() }
-        audio.start()
+        // Default = what our SDL now always delivers under ONNM4 (48 kHz stereo); --ei rate/channels only for old tests
+        audio = AudioSink(intent.getIntExtra("rate", 48000), intent.getIntExtra("channels", 2)).also { it.start() }
 
         val frames = intent.getIntExtra("frames", 600)
         // --ez launch false: an external renderer (m6, the game) connects to @onn-m4 instead of m4h.
@@ -94,8 +109,12 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
             Log.i(TAG, "m4h exited ${renderer?.waitFor()}")
         }, "m4h-log").start()
         // The renderer listens on @onn-m4 first; the bridge's connect retries for 5 s.
-        args = serviceArgs()
-        Shizuku.bindUserService(args, conn)
+        tag = GameSession.nextBridgeTag()
+        args = serviceArgs(tag)
+        conn = connection(tag).also { Shizuku.bindUserService(args, it) }
+        Log.i(TAG, "session uses bridge$tag")
+        // A tile launch names the game: start it here, on GameSession's worker, so any KILL queued by stop() runs first
+        intent.getStringExtra("game")?.let { GameSession.start(it) }
     }
 
     private fun offer() {
@@ -104,8 +123,30 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         Log.i(TAG, "bridge offer -> $rc (lib $lib)")
     }
 
-    /** Renderer -> us: 'M4RD' index frame. Us -> renderer: index once it is on screen. */
+    private val releaser = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private var overlaySc: android.view.SurfaceControl? = null
+
+    /** A child layer of the SurfaceView, scaled from the game's buffer size to the view; HWC scans it out directly. */
+    private fun overlayLayer(): android.view.SurfaceControl? = runCatching {
+        val parent = view.surfaceControl
+        val w = buffers[0].width; val h = buffers[0].height
+        val sc = android.view.SurfaceControl.Builder().setName("onn-game").setParent(parent).setBufferSize(w, h).setOpaque(true).build()
+        android.view.SurfaceControl.Transaction()
+            .setVisibility(sc, true)
+            .setScale(sc, view.width.toFloat() / w, view.height.toFloat() / h)
+            .apply()
+        overlaySc = sc
+        Log.i(TAG, "present: overlay ${w}x$h -> ${view.width}x${view.height}")
+        sc
+    }.onFailure { Log.e(TAG, "present: overlay unavailable, using canvas: $it") }.getOrNull()
+
+    /** Renderer -> us: 'M4RD' (GL, bottom-up rows) or 'M4RV' (Vulkan WSI, top-down rows) index frame. Us -> renderer: index once it is on screen. */
     private fun serve() {
+        val ackDelayMs = intent.getIntExtra("ackdelayms", 0)
+        val noDraw = intent.getBooleanExtra("nodraw", false)
+        // TEST-ONLY until proven: --es present overlay hands each buffer to HWC (the DEVICE overlay it already is)
+        // instead of a HWUI canvas copy, and acks only when the display releases it. No GPU reads our pages.
+        val overlay = intent.getStringExtra("present") == "overlay"
         try {
             ServerSocket().use { ss ->
                 server = ss
@@ -113,23 +154,46 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
                 ss.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 7331), 1)
                 Log.i(TAG, "listening on 127.0.0.1:7331")
                 ss.accept().use { s ->
+                    client = s
                     val input = DataInputStream(s.getInputStream()); val out = DataOutputStream(s.getOutputStream())
                     val hdr = ByteArray(12); val bb = ByteBuffer.wrap(hdr).order(ByteOrder.LITTLE_ENDIAN)
                     var frames = 0; val t0 = System.nanoTime()
+                    val sendAck: (Int) -> Unit = { idx ->
+                        val a = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(idx).array()
+                        synchronized(out) { out.write(a); out.flush() }
+                    }
+                    val game = if (overlay) overlayLayer() else null
                     while (true) {
                         input.readFully(hdr); bb.rewind()
                         val magic = bb.getInt(); val i = bb.getInt(); bb.getInt()
-                        if (magic != 0x4452344d || i !in buffers.indices) throw IllegalStateException("bad ready msg")
+                        // The third word stays the sender's frame counter; the tag says the row order
+                        val vulkan = magic == M4RV
+                        if ((magic != M4RD && !vulkan) || i !in buffers.indices) throw IllegalStateException("bad ready msg")
+                        if (game != null) {
+                            // The release callback fires once HWC is done scanning buffer i; only then may the game draw into it again.
+                            android.view.SurfaceControl.Transaction()
+                                .setBuffer(game, buffers[i], null) { fence -> releaser.execute {
+                                    runCatching { fence.awaitForever() }; fence.close()
+                                    runCatching { sendAck(i) }
+                                } }
+                                .setBufferTransform(game, if (vulkan) 0 else android.view.SurfaceControl.BUFFER_TRANSFORM_MIRROR_VERTICAL)
+                                .apply()
+                            frames++
+                            if (frames % 60 == 0) Log.i(TAG, String.format("%d frames shown, %.1f fps (overlay)", frames, frames / ((System.nanoTime() - t0) / 1e9)))
+                            continue
+                        }
                         val bmp = bitmaps[i] ?: Bitmap.wrapHardwareBuffer(buffers[i], ColorSpace.get(ColorSpace.Named.SRGB))!!.also { bitmaps[i] = it }
-                        view.holder.lockHardwareCanvas()?.let { c ->
-                            // GL renders bottom-up into the dma-buf; flip on the canvas, free on the GPU.
-                            c.save(); c.scale(1f, -1f, c.width / 2f, c.height / 2f)
+                        // TEST-ONLY: --ez nodraw true acks without the HWUI canvas draw (panel stays lit, screen shows nothing). Never set on the tile path.
+                        if (!noDraw) view.holder.lockHardwareCanvas()?.let { c ->
+                            // GL renders bottom-up into the dma-buf: flip on the canvas, free on the GPU. Vulkan is already top-down.
+                            c.save(); if (!vulkan) c.scale(1f, -1f, c.width / 2f, c.height / 2f)
                             c.drawBitmap(bmp, null, Rect(0, 0, c.width, c.height), paint)
                             c.restore()
                             view.holder.unlockCanvasAndPost(c)
                         }
-                        val ack = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(i).array()
-                        out.write(ack); out.flush()
+                        // TEST-ONLY: --ei ackdelayms N holds each ack N ms, capping any game at about 1000/N fps. Never set on the tile path.
+                        if (ackDelayMs > 0) Thread.sleep(ackDelayMs.toLong())
+                        sendAck(i)
                         frames++
                         if (frames % 60 == 0) Log.i(TAG, String.format("%d frames shown, %.1f fps", frames, frames / ((System.nanoTime() - t0) / 1e9)))
                     }
@@ -137,13 +201,19 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
             }
         } catch (e: Exception) {
             Log.i(TAG, "stream ended: $e")
-        } finally { server = null }
+            // The game exited or crashed (not us stopping): leave the black game screen, back to HOME
+            if (GameSession.external && !closing) runOnUiThread { if (!isFinishing) finish() }
+        } finally { server = null; client = null }
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { }
     // Vita-style: leaving the game (PS/HOME, another app) freezes it instead of killing it; buffers, sockets and
     // the bridge stay alive, so coming back is a SIGCONT and the next frame lands in the same HardwareBuffers.
-    override fun surfaceDestroyed(holder: SurfaceHolder) { if (!isFinishing && GameSession.external) suspendGame() else stop() }
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        // TEST-ONLY: --ez nosuspend true keeps the game rendering with the panel off (frames acked without drawing). Never set on the tile path.
+        if (!isFinishing && GameSession.external && intent.getBooleanExtra("nosuspend", false)) return
+        if (!isFinishing && GameSession.external) suspendGame() else stop()
+    }
 
     private fun suspendGame() {
         if (GameSession.suspended) return
@@ -151,20 +221,34 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         Log.i(TAG, "game suspended")
     }
     private fun resumeGame() {
+        // The game died while we were away (crash, DEVICE LOST, killed by a test): nothing to thaw, clear the flag
+        // instead of bouncing "resumed/suspended" forever and refusing every new launch.
+        if (ShellUser.run("pidof linker64 >/dev/null") != 0) {
+            Log.w(TAG, "suspended game is gone; ending the session"); GameSession.suspended = false; stop(); finish(); return
+        }
+        if (server == null) { // this instance never owned the session (process or activity was recreated): nothing to thaw into
+            Log.w(TAG, "suspended game has no display session here; ending it"); GameSession.suspended = false; stop(); finish(); return
+        }
         GameSession.signal("CONT"); GameSession.suspended = false
         Log.i(TAG, "game resumed")
     }
 
+    @Volatile private var closing = false
+
     private fun stop() {
+        closing = true
         if (GameSession.external) { GameSession.signal("KILL"); GameSession.external = false; GameSession.suspended = false }
+        try { client?.close() } catch (_: Exception) { }
         try { server?.close() } catch (_: Exception) { }
         thread?.join(2000); thread = null
-        audio.stop()
+        overlaySc?.let { sc -> runCatching { android.view.SurfaceControl.Transaction().reparent(sc, null).apply(); sc.release() } }; overlaySc = null
+        audio?.stop(); audio = null
         renderer?.destroy(); renderer = null
         // Ask the bridge process to exit before unbinding: a bind right after unbind(remove=true) raced in Shizuku
         // and the fresh service never got the offer.
         runCatching { bridge?.destroy() }; bridge = null
-        runCatching { Shizuku.unbindUserService(args, conn, true) }
+        conn?.let { c -> runCatching { Shizuku.unbindUserService(args, c, true) } }; conn = null
+        tag = -1
         bitmaps.forEach { it?.recycle() }; bitmaps = emptyArray()
         buffers.forEach { it.close() }; buffers = emptyArray()
     }
@@ -176,18 +260,39 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         return true
     }
 
-    override fun onDestroy() { stop(); super.onDestroy() }
+    override fun onDestroy() { stop(); GameSession.endedAt = android.os.SystemClock.uptimeMillis(); super.onDestroy() }
 
-    companion object { private const val TAG = "M4"; private const val PB = "/data/local/tmp/pb" }
+    companion object {
+        private const val TAG = "M4"; private const val PB = "/data/local/tmp/pb"
+        private const val M4RD = 0x4452344d // "M4RD" little-endian
+        private const val M4RV = 0x5652344d // "M4RV"
+    }
 }
 
 /** The one external game session (launched with --ez launch false) and whether it is frozen. */
 object GameSession {
     @Volatile var external = false
     @Volatile var suspended = false
+    /** When the last game screen closed. HOME ignores the pad briefly after it, so gameplay presses still in flight
+     *  (d-pad + A) cannot walk the home screen into Power > Restart > Yes; that rebooted the box several times. */
+    @Volatile var endedAt = 0L
+    private val bridgeTags = java.util.concurrent.atomic.AtomicInteger()
+    fun nextBridgeTag() = bridgeTags.getAndIncrement()
     private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     /** Signal the game (everything we run goes through the bundled linker64). By process name, not pkill -f: toybox's
      *  pkill -STOP -f matched and froze its own sh, which hung the HOME main thread (ANR). Off the main thread, in order. */
+    /** Start an installed 64-bit game (/data/local/tmp/games/<id>, from apkinstall) through apkrun, as the shell user. */
+    fun start(id: String) {
+        if (!Regex("[a-z0-9][a-z0-9-]*").matches(id)) { Log.e("M4", "bad game id $id"); return } // goes into a shell line
+        worker.execute {
+            ShellUser.run("while pidof linker64 >/dev/null; do sleep 0.1; done; " +
+                // a game built for the box itself (Mario) brings its own run.sh; APK ports go through run_apk.sh
+                "G=/data/local/tmp/games/$id; if [ -f \$G/run.sh ]; then set -- \$G/run.sh; else set -- /data/local/tmp/games/run_apk.sh \$G; fi; " +
+                "nohup sh \"\$@\" </dev/null >/dev/null 2>&1 &")
+            Log.i("M4", "started game $id")
+        }
+    }
+
     fun signal(sig: String) = worker.execute { ShellUser.run("p=\$(pidof linker64); [ -n \"\$p\" ] && kill -$sig \$p") }
 }

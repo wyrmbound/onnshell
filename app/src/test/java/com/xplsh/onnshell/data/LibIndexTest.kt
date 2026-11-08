@@ -46,7 +46,7 @@ class LibIndexTest {
 
     @Test fun serverMustBeOnTheLan() {
         assertTrue(LibIndex.lanUrl("http://192.168.1.10:8765"))
-        assertTrue(LibIndex.lanUrl("http://172.16.0.2:8765"))
+        assertTrue(LibIndex.lanUrl("http://172.16.0.5:8765"))
         assertTrue(LibIndex.lanUrl("http://127.0.0.1:8765"))
         assertTrue(LibIndex.lanUrl("http://truenas.local:8765"))
         assertTrue(LibIndex.lanUrl("http://nas:8765"))

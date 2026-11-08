@@ -60,6 +60,47 @@ object Apps {
             .sortedBy { it.label.lowercase() }
     }
 
+    /** Where installed 64-bit games keep their APK (OnnShell reads name and art from it; it is never installed). */
+    fun nativeGamesDir(ctx: Context) = java.io.File(ctx.getExternalFilesDir(null), "games")
+    const val NATIVE = "native:"
+
+    /**
+     * 64-bit games (apkinstall output in /data/local/tmp/games/<id>, run through apkrun). Their APKs sit in
+     * nativeGamesDir as <id>.apk: Android cannot install them here, but can still read their label, icon and banner.
+     * Call off the main thread.
+     */
+    fun loadNative(ctx: Context): List<AppEntry> {
+        val pm = ctx.packageManager
+        val files = nativeGamesDir(ctx).listFiles { f -> f.name.endsWith(".apk") || f.name.endsWith(".tile") } ?: return emptyList()
+        return files.mapNotNull { f ->
+            // Games built for the box (no APK): <id>.tile holds the name, <id>.png the art
+            if (f.name.endsWith(".tile")) {
+                val art = runCatching { android.graphics.BitmapFactory.decodeFile(java.io.File(f.parentFile, f.nameWithoutExtension + ".png").path) }.getOrNull()
+                    ?.let { android.graphics.Bitmap.createScaledBitmap(it, 320, 180, true) }
+                return@mapNotNull AppEntry(
+                    label = f.readText().trim().ifEmpty { f.nameWithoutExtension }, pkg = NATIVE + f.nameWithoutExtension,
+                    isGame = true, isSystem = false, version = "", updated = f.lastModified(), installed = f.lastModified(),
+                    icon = null, banner = art?.asImageBitmap(), color = art?.averageColor() ?: 0xFF202020.toInt(),
+                    art = art?.let { fadedThumb(it).asImageBitmap() },
+                )
+            }
+            val info = pm.getPackageArchiveInfo(f.path, 0) ?: return@mapNotNull null
+            val ai = info.applicationInfo ?: return@mapNotNull null
+            ai.sourceDir = f.path; ai.publicSourceDir = f.path // lets PackageManager load resources from the file
+            val icon = runCatching { ai.loadIcon(pm)?.toBitmap(96, 96) }.getOrNull()
+            val banner = runCatching { ai.loadBanner(pm)?.toBitmap(320, 180) }.getOrNull()
+            AppEntry(
+                label = runCatching { ai.loadLabel(pm).toString() }.getOrDefault(f.nameWithoutExtension),
+                pkg = NATIVE + f.nameWithoutExtension,
+                isGame = true, isSystem = false,
+                version = info.versionName ?: "", updated = f.lastModified(), installed = f.lastModified(),
+                icon = icon?.asImageBitmap(), banner = banner?.asImageBitmap(),
+                color = (banner ?: icon)?.averageColor() ?: 0xFF202020.toInt(),
+                art = banner?.let { fadedThumb(it).asImageBitmap() },
+            )
+        }.sortedBy { it.label.lowercase() }
+    }
+
     /**
      * Games row and Apps row. Games (by category, or moved there by the owner) always show,
      * other apps only if whitelisted.

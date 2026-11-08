@@ -34,8 +34,9 @@ object Policy {
         // Wi-Fi was found off after a reboot (2026-11-06), which cut adb and Shizuku's self-start; owners may switch it on
         runCatching {
             val wm = ctx.getSystemService(android.net.wifi.WifiManager::class.java)
-            @Suppress("DEPRECATION") if (!wm.isWifiEnabled) wm.setWifiEnabled(true)
+            @Suppress("DEPRECATION") if (!wm.isWifiEnabled) Events.log(ctx, "wifi was off at start -> ${wm.setWifiEnabled(true)}")
         }
+        runCatching { Events.watchWifi(ctx) }
         val dpm = dpm(ctx)
         val admin = admin(ctx)
         val l = ledger(ctx)
@@ -48,6 +49,16 @@ object Policy {
         }
         l.add("home", "$PKG/.MainActivity", cmd("CLEAR_HOME"))
         dpm.addPersistentPreferredActivity(admin, home, ComponentName(ctx, MainActivity::class.java))
+
+        // OnnShell is the file picker: otherwise the TV's "not supported" stub and the photo picker win the ROM prompts
+        for (action in listOf(Intent.ACTION_OPEN_DOCUMENT, Intent.ACTION_GET_CONTENT, Intent.ACTION_OPEN_DOCUMENT_TREE)) {
+            val f = IntentFilter(action).apply {
+                addCategory(Intent.CATEGORY_DEFAULT)
+                if (action != Intent.ACTION_OPEN_DOCUMENT_TREE) { addCategory(Intent.CATEGORY_OPENABLE); addDataType("*/*") }
+            }
+            l.add("home", "$PKG/.files.PickActivity $action", cmd("CLEAR_HOME")) // same undo: clears all our preferred activities
+            dpm.addPersistentPreferredActivity(admin, f, ComponentName(ctx, com.xplsh.onnshell.files.PickActivity::class.java))
+        }
 
         for (p in HIDE) {
             if (dpm.isApplicationHidden(admin, p)) continue
@@ -107,7 +118,11 @@ object Policy {
     fun sleep(ctx: Context) { runCatching { dpm(ctx).lockNow() } }
 
     /** Device Owner reboot. Not a system change, nothing to ledger. */
-    fun reboot(ctx: Context) { runCatching { dpm(ctx).reboot(admin(ctx)) } }
+    fun reboot(ctx: Context) {
+        // Boot reason "reboot,deviceowner" showed up with nobody at the pad; keep the caller on disk (logcat dies with the reboot).
+        runCatching { java.io.File(ctx.filesDir, "reboot.log").appendText("${java.util.Date()}\n${android.util.Log.getStackTraceString(Throwable())}\n") }
+        runCatching { dpm(ctx).reboot(admin(ctx)) }
+    }
 
     fun status(ctx: Context): String = runCatching {
         val dpm = dpm(ctx)

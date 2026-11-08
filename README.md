@@ -4,4 +4,4 @@ OnnShell is a custom home layer for the onn 4K Pro Gen 2 (Amlogic S905X5M, Andro
 
 Part of [onn-native-gpu](https://github.com/wyrmbound/onn-native-gpu): its zero-copy display (`display/`) is how native GPU games reach the screen.
 
-License: MIT for the code (see `LICENSE`); the Outfit font is OFL (`docs/licenses/`); the startup sound is AI-generated and not covered by MIT (`docs/licenses/startup-sound.txt`).
+License: MIT for the code (see `LICENSE`); the bundled fonts (Outfit, Bebas Neue, Fredoka, IBM Plex Mono, Nunito) are OFL (`docs/licenses/`); the startup sound is AI-generated and not covered by MIT (`docs/licenses/startup-sound.txt`).

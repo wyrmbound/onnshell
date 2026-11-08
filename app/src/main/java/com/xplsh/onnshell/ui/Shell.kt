@@ -22,11 +22,18 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.runtime.rememberCoroutineScope
+import com.xplsh.onnshell.data.Entry
+import com.xplsh.onnshell.data.Rating
+import com.xplsh.onnshell.data.StoreState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,12 +58,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -111,6 +120,8 @@ import com.xplsh.onnshell.data.Prefs
 import com.xplsh.onnshell.data.ShellUser
 import com.xplsh.onnshell.data.SystemInfo
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import com.xplsh.onnshell.data.GameInstaller
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
@@ -118,6 +129,7 @@ import java.util.Date
 
 sealed interface Screen {
     data object Home : Screen
+    data object Store : Screen
     data object Menu : Screen
     data object Controller : Screen
     data object ShellSettings : Screen
@@ -126,7 +138,10 @@ sealed interface Screen {
     data class Info(val title: String, val lines: suspend () -> List<String>) : Screen
     data class Details(val tile: Tile) : Screen
     data class Options(val tile: Tile) : Screen
-    data class Confirm(val text: String, val yes: String, val onYes: () -> Unit) : Screen
+    // opened: presses (or touchpad-pointer clicks) already in flight when the panel appears must not confirm it
+    // back: where Cancel and B go (the Store's Get warning returns to the Store, not Home)
+    data class Confirm(val text: String, val yes: String, val back: Screen = Home,
+                       val opened: Long = android.os.SystemClock.uptimeMillis(), val onYes: () -> Unit) : Screen
 }
 
 data class Tile(
@@ -141,7 +156,7 @@ data class Tile(
 )
 
 /** cards = app and game art, otherwise system tiles. */
-private data class Shelf(val title: String, val tiles: List<Tile>, val cards: Boolean, val placeholder: Boolean = false)
+private data class Shelf(val title: String, val tiles: List<Tile>, val cards: Boolean, val placeholder: Boolean = false, val square: Boolean = false)
 
 /**
  * Focus state, kept out of Shell's own composition: only the hero, the backdrop and the tab
@@ -158,15 +173,25 @@ fun Shell(resumes: Int) {
     val ctx = LocalContext.current
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var accentIx by remember { mutableIntStateOf(Prefs.accentIndex(ctx)) }
+    var themeId by remember { mutableStateOf(Prefs.themeId(ctx)) }
+    LaunchedEffect(resumes) { themeId = Prefs.themeId(ctx) } // the THEME command and a relaunch change it without recreating us
+    val theme = Themes.byId(themeId)
     val lite = Pad.lite
-    val accent = Prefs.ACCENTS[accentIx]
+    // Slate keeps the accent the owner picked; Ink and Mono fix theirs (the mockups' glow and ochre)
+    val accent = if (theme === Themes.SLATE) Prefs.ACCENTS[accentIx] else Accent(listOf(theme.accent, theme.accent))
     var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     var whitelist by remember { mutableStateOf(Prefs.whitelist(ctx) ?: emptySet()) }
     var userGames by remember { mutableStateOf(Prefs.games(ctx)) }
+    var nativeGames by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     val nav = remember { Nav() }
+    val scope = rememberCoroutineScope()
+    val store = remember { StoreState.forApp(ctx, scope) }
+    LaunchedEffect(store.openRequest) { if (store.openRequest) { screen = Screen.Store; store.refresh(); store.openRequest = false } }
 
+    var removals by remember { mutableIntStateOf(0) } // bumped by Options > Uninstall
     // Reload on every return to HOME, so installs and disables show up. New installs join the Apps row.
-    LaunchedEffect(resumes) {
+    LaunchedEffect(resumes, store.installs, removals) {
+        nativeGames = withContext(Dispatchers.Default) { runCatching { Apps.loadNative(ctx) }.getOrDefault(emptyList()) }
         apps = withContext(Dispatchers.Default) { Apps.load(ctx) }
         val own = ctx.packageManager.getPackageInfo(ctx.packageName, 0).firstInstallTime
         whitelist = Apps.refresh(apps, Prefs.whitelist(ctx) ?: Apps.seed(apps), Prefs.known(ctx), own)
@@ -175,12 +200,11 @@ fun Shell(resumes: Int) {
         // Apps close when you leave them: back on HOME, end the owner's apps in the background
         withContext(Dispatchers.IO) { Apps.closeCommand(apps)?.let { ShellUser.run(it) } }
     }
-    /** PS at home: back to the suspended game if there is one, else the last launched app. */
+    /** PS at home: back to the suspended game if there is one; with no game, stay home (owner, 2026-11-06). */
     fun last() {
-        android.util.Log.i("M4", "last(): suspended=${com.xplsh.onnshell.display.GameSession.suspended} screen=$screen")
         if (com.xplsh.onnshell.display.GameSession.suspended) {
             ctx.startActivity(Intent(ctx, com.xplsh.onnshell.display.ZeroCopyActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } else Prefs.lastApp(ctx)?.let { Apps.launch(ctx, it) }
+        }
     }
     LaunchedEffect(Unit) {
         Pad.cmds.collect { cmd ->
@@ -189,31 +213,54 @@ fun Shell(resumes: Int) {
                 Cmd.ARRIVE -> if (!Pad.testing) screen = Screen.Home
                 Cmd.HOME -> if (!Pad.testing) { if (screen == Screen.Home) last() else screen = Screen.Home }
                 Cmd.LAST -> if (!Pad.testing) last()
+                Cmd.TAB_PREV, Cmd.TAB_NEXT -> {} // Home handles them
                 Cmd.DETAILS -> if (screen == Screen.Home) nav.focused?.let { screen = Screen.Details(it) }
                 Cmd.OPTIONS -> if (screen == Screen.Home) nav.focused?.let { screen = Screen.Options(it) }
             }
         }
     }
     LaunchedEffect(Pad.testing) { if (!Pad.testing && screen == Screen.Controller) screen = Screen.Home }
-    BackHandler(enabled = screen != Screen.Home) { screen = Screen.Home }
+    BackHandler(enabled = screen != Screen.Home) { screen = (screen as? Screen.Confirm)?.back ?: Screen.Home }
 
     fun open(action: String, data: Uri? = null) {
         runCatching { ctx.startActivity(Intent(action, data).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             .onFailure { ctx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
     fun launch(a: AppEntry) {
+        if (a.pkg.startsWith(Apps.NATIVE)) { // 64-bit game: the game screen starts it (see ZeroCopyActivity "game")
+            ctx.startActivity(Intent(ctx, com.xplsh.onnshell.display.ZeroCopyActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra("launch", false).putExtra("fresh", true).putExtra("game", a.pkg.removePrefix(Apps.NATIVE)))
+            return
+        }
         if (!Apps.launch(ctx, a.pkg)) nav.hint = ctx.getString(R.string.launch_failed, a.label)
         else Prefs.setLastApp(ctx, a.pkg)
+    }
+    /** An installed store entry: 64-bit ports open through the game screen, 32-bit builds like any app. */
+    fun openEntry(e: Entry) {
+        if (java.io.File(Apps.nativeGamesDir(ctx), "${e.id}.apk").exists()) {
+            ctx.startActivity(Intent(ctx, com.xplsh.onnshell.display.ZeroCopyActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra("launch", false).putExtra("fresh", true).putExtra("game", e.id))
+        } else e.pkg?.let { if (!Apps.launch(ctx, it)) nav.hint = ctx.getString(R.string.launch_failed, e.name) }
+    }
+    /** Get: Medium and lower ratings get a warning first (CONSOLE_MODE section 10). */
+    fun getEntry(e: Entry) {
+        if (e.rating.ordinal >= Rating.MEDIUM.ordinal) {
+            val tier = ctx.getString(if (e.rating == Rating.MEDIUM) R.string.rating_medium else R.string.rating_not_recommended)
+            screen = Screen.Confirm(ctx.getString(R.string.store_warn_medium, tier), ctx.getString(R.string.store_get), back = Screen.Store) { store.install(e); screen = Screen.Store }
+        } else store.install(e)
     }
     fun info(title: Int, lines: suspend () -> List<String>) { screen = Screen.Info(ctx.getString(title), lines) }
     fun confirmReboot() {
         screen = Screen.Confirm(ctx.getString(R.string.reboot_confirm), ctx.getString(R.string.yes_reboot)) { Policy.reboot(ctx) }
     }
 
-    val (games, appRow) = Apps.split(apps, whitelist, userGames)
+    val (androidGames, appRow) = Apps.split(apps, whitelist, userGames)
+    val games = (androidGames + nativeGames).sortedBy { it.label.lowercase() }
     val shelves = listOf(
         Shelf(stringResource(R.string.row_games),
-            games.map { Tile("g:${it.pkg}", it.label, app = it) { launch(it) } }, cards = true, placeholder = true),
+            games.map { Tile("g:${it.pkg}", it.label, app = it) { launch(it) } }, cards = true, placeholder = true, square = true),
         Shelf(stringResource(R.string.row_apps),
             appRow.map { Tile("a:${it.pkg}", it.label, app = it) { launch(it) } }, cards = true),
         Shelf(stringResource(R.string.row_system), listOf(
@@ -235,11 +282,15 @@ fun Shell(resumes: Int) {
         ), cards = false),
     )
 
-    CompositionLocalProvider(LocalTextStyle provides TextStyle(fontFamily = Outfit, color = Color.White)) {
-        Box(Modifier.fillMaxSize().background(Ui.BG)) {
+    CompositionLocalProvider(LocalTheme provides theme, LocalTextStyle provides TextStyle(fontFamily = theme.body, color = theme.text)) {
+        Box(Modifier.fillMaxSize().background(theme.bg)) {
             Backdrop(nav, accent, lite, home = screen == Screen.Home)
             when (val s = screen) {
-                Screen.Home -> Home(shelves, accent, lite, nav, resumes, { screen = Screen.Details(it) }, { screen = Screen.Options(it) })
+                Screen.Home -> Home(shelves, accent, lite, nav, resumes,
+                    listOf(stringResource(R.string.tab_store) to { screen = Screen.Store; store.refresh() }),
+                    { screen = Screen.Details(it) }, { screen = Screen.Options(it) })
+
+                Screen.Store -> Store(store, accent, lite, onGet = { getEntry(it) }, onOpen = { openEntry(it) })
 
                 Screen.Menu -> Panel(stringResource(R.string.menu_title), accent) {
                     Choices(accent, listOf(
@@ -260,11 +311,15 @@ fun Shell(resumes: Int) {
 
                 Screen.ShellSettings -> Panel(stringResource(R.string.sys_shell_settings), accent) {
                     val names = stringArrayResource(R.array.accent_names)
-                    Choices(accent, listOf(
-                        stringResource(R.string.settings_accent, names[accentIx]) to {
+                    Choices(accent, listOfNotNull(
+                        stringResource(R.string.settings_theme, stringResource(theme.nameRes)) to {
+                            themeId = Themes.ALL[(Themes.ALL.indexOf(theme) + 1) % Themes.ALL.size].id
+                            Prefs.setThemeId(ctx, themeId)
+                        },
+                        (stringResource(R.string.settings_accent, names[accentIx]) to {
                             accentIx = (accentIx + 1) % Prefs.ACCENTS.size
                             Prefs.setAccentIndex(ctx, accentIx)
-                        },
+                        }).takeIf { theme === Themes.SLATE },
                         stringResource(R.string.settings_effects, stringResource(if (lite) R.string.effects_lite else R.string.effects_full)) to {
                             Pad.lite = !lite
                             Prefs.setLite(ctx, Pad.lite)
@@ -345,6 +400,19 @@ fun Shell(resumes: Int) {
                             screen = Screen.Home
                             open(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.pkg}"))
                         })
+                        // 64-bit store games, and apps the owner installed; system apps never
+                        if (a.pkg.startsWith(Apps.NATIVE) || !a.isSystem) add(stringResource(R.string.opt_uninstall) to {
+                            screen = Screen.Confirm(ctx.getString(R.string.uninstall_confirm, a.label), ctx.getString(R.string.yes_uninstall)) {
+                                scope.launch {
+                                    val ok = if (a.pkg.startsWith(Apps.NATIVE)) withContext(Dispatchers.IO) {
+                                        runCatching { GameInstaller.uninstall(ctx, a.pkg.removePrefix(Apps.NATIVE)) }.isSuccess
+                                    } else GameInstaller.uninstallPackage(ctx, a.pkg).isSuccess
+                                    if (!ok) nav.hint = ctx.getString(R.string.uninstall_failed, a.label)
+                                    userGames = Prefs.games(ctx)
+                                    removals++; store.refresh(force = true)
+                                }
+                            }
+                        })
                     })
                 }
 
@@ -352,8 +420,8 @@ fun Shell(resumes: Int) {
                     Line(s.text)
                     Spacer(Modifier.size(16.dp))
                     Choices(accent, listOf( // Cancel first, so it has focus
-                        stringResource(R.string.cancel) to { screen = Screen.Home },
-                        s.yes to { screen = Screen.Home; s.onYes() },
+                        stringResource(R.string.cancel) to { screen = s.back },
+                        s.yes to { if (android.os.SystemClock.uptimeMillis() - s.opened > 1000) { screen = Screen.Home; s.onYes() } },
                     ))
                 }
             }
@@ -368,54 +436,54 @@ private fun toggleLanguage(ctx: Context) {
         LocaleList.forLanguageTags(if (es) "en-US" else "es-PR")
 }
 
-/**
- * Full: a slowly drifting aurora in the accent colors plus the focused app's art, blurred, behind
- * the hero. Lite: one static solid gradient (the spec's no blur, no transparency look).
- */
 @Composable
 private fun Backdrop(nav: Nav, accent: Accent, lite: Boolean, home: Boolean) {
+    val theme = LocalTheme.current
     val app = if (home) nav.focused?.app else null
     val glow by animateColorAsState(app?.let { Color(it.color) } ?: accent.main, tween(500), label = "glow")
     if (lite) {
-        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(lerp(glow, Ui.BG, 0.5f), Ui.BG), Offset.Zero, 1700f)))
+        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(lerp(glow, theme.bg, 0.5f), theme.bg), Offset.Zero, 1700f)))
         return
     }
+    if (theme.grid == Grid.STRIPS) { Box(Modifier.fillMaxSize().background(theme.bg)); return } // Mono is flat by design
     // 1. The focused app's color, one cheap full screen gradient. Bright colors are dimmed more,
-    // so white text stays readable on top of a white app's glow.
+    // so text stays readable on top of a white app's glow.
     val dim = 0.35f + 0.45f * glow.luminance()
-    Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(lerp(glow, Ui.BG, dim), Ui.BG), Offset.Zero, 1900f)))
-    // 2. The aurora: a tiny prerendered texture, drifting by layer transform only (no redraw)
-    val aurora = remember(accent) { auroraBitmap(accent) }
-    // Drifts back and forth while someone is using the remote; after 30 s idle it stops drawing
-    // (a TV can sit on HOME for hours) and wakes on the next key.
-    val drift = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        var to = 1f
-        while (true) {
-            if (System.currentTimeMillis() - Pad.lastInput > 30_000) {
-                snapshotFlow { Pad.lastInput }.first { System.currentTimeMillis() - it < 2_000 }
+    Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(lerp(glow, theme.bg, dim), theme.bg), Offset.Zero, 1900f)))
+    if (theme.ambient) {
+        // 2. The aurora: a tiny prerendered texture, drifting by layer transform only (no redraw)
+        val aurora = remember(accent) { auroraBitmap(accent) }
+        // Drifts back and forth while someone is using the remote; after 30 s idle it stops drawing
+        // (a TV can sit on HOME for hours) and wakes on the next key.
+        val drift = remember { Animatable(0f) }
+        LaunchedEffect(Unit) {
+            var to = 1f
+            while (true) {
+                if (System.currentTimeMillis() - Pad.lastInput > 30_000) {
+                    snapshotFlow { Pad.lastInput }.first { System.currentTimeMillis() - it < 2_000 }
+                }
+                drift.animateTo(to, tween(12_000, easing = LinearEasing))
+                to = 1f - to
             }
-            drift.animateTo(to, tween(12_000, easing = LinearEasing))
-            to = 1f - to
         }
-    }
-    Image(
-        aurora, null,
-        Modifier.fillMaxSize().graphicsLayer {
-            val t = drift.value // read in the layer block: moves the layer, recomposes nothing
-            scaleX = 1.25f; scaleY = 1.25f
-            translationX = (t - 0.5f) * 140f
-            translationY = (0.5f - t) * 70f
-        },
-        contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.Low,
-    )
-    // 3. The focused app's art behind the hero: a 40 px thumbnail stretched up reads as a heavy blur.
-    // Its fade to transparent is baked into the thumbnail, so it melts into the aurora with no edge.
-    Crossfade(app?.art, animationSpec = tween(400), label = "art") { art ->
-        if (art != null) Image(
-            art, null, Modifier.fillMaxWidth().fillMaxHeight(0.75f).graphicsLayer { alpha = 0.6f },
+        Image(
+            aurora, null,
+            Modifier.fillMaxSize().graphicsLayer {
+                val t = drift.value // read in the layer block: moves the layer, recomposes nothing
+                // scale 1.0: a 1.25x layer meant a quarter more pixels every frame of the drift (p90 19 ms on the G310)
+                translationX = (t - 0.5f) * 60f
+                translationY = (0.5f - t) * 30f
+            },
             contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.Low,
         )
+    } else {
+        // 3. Slate: the focused game's own art as a top band, plain crop, fading into the page (no blur, no stretch)
+        Crossfade(app?.banner, animationSpec = tween(400), label = "art") { banner ->
+            if (banner != null) Box(Modifier.fillMaxWidth().fillMaxHeight(0.6f)) {
+                Image(banner, null, Modifier.fillMaxSize().graphicsLayer { alpha = 0.5f }, contentScale = ContentScale.Crop, filterQuality = FilterQuality.Low)
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, theme.bg))))
+            }
+        }
     }
 }
 
@@ -423,8 +491,10 @@ private fun Backdrop(nav: Nav, accent: Accent, lite: Boolean, home: Boolean) {
 @Composable
 private fun Home(
     shelves: List<Shelf>, accent: Accent, lite: Boolean, nav: Nav, resumes: Int,
+    extraTabs: List<Pair<String, () -> Unit>>,
     onDetails: (Tile) -> Unit, onOptions: (Tile) -> Unit,
 ) {
+    val theme = LocalTheme.current
     val reqs = remember { mutableMapOf<String, FocusRequester>() }
     val ids = shelves.flatMap { s -> s.tiles.map { it.id } }
     val scroll = rememberScrollState()
@@ -434,45 +504,74 @@ private fun Home(
     // focus arrives before the rows are measured.
     LaunchedEffect(active, tops[active]) { tops[active]?.let { scroll.animateScrollTo(it) } }
     val onFocus: (Tile) -> Unit = { t -> nav.focused = t; nav.last = t.id; nav.hint = "" }
+    val tabs = shelves.map { it.title } + extraTabs.map { it.first }
+    val onTab: (Int) -> Unit = { i ->
+        if (i < shelves.size) shelves[i].tiles.firstOrNull()?.let { runCatching { reqs[it.id]?.requestFocus() } }
+        else extraTabs[i - shelves.size].second()
+    }
+    // L1/R1: previous/next tab, wrapping. Only while Home is on screen (this composable is gone elsewhere).
+    // Through rememberUpdatedState: the collector outlives recompositions, and the first onTab only knew the empty launch shelves.
+    val tabNow by rememberUpdatedState(onTab)
+    LaunchedEffect(tabs.size) {
+        Pad.cmds.collect { c ->
+            val step = when (c) { Cmd.TAB_PREV -> -1; Cmd.TAB_NEXT -> 1; else -> return@collect }
+            tabNow(((maxOf(active, 0) + step) % tabs.size + tabs.size) % tabs.size)
+        }
+    }
+    // A removed game can leave the hero on its name: the card slot keeps focus, so onFocus never fires again.
+    // shortcut: shows the row's first tile, which is the focused one only when the removed game was first in its row
+    LaunchedEffect(ids) {
+        if (nav.focused?.id?.let { it !in ids } == true) nav.focused = shelves.getOrNull(active)?.tiles?.firstOrNull()
+    }
 
     // Rows run edge to edge so a focused card's lift and frame are never cut at the page margin.
     // Everything else keeps the margin, and the rows scroll to keep the focused card a margin
     // away from the screen edge.
-    val marginPx = with(LocalDensity.current) { EDGE.toPx() }
+    val edge = if (theme.tabs == Tabs.LEFT_RAIL) RAIL_EDGE else EDGE
+    val marginPx = with(LocalDensity.current) { edge.toPx() }
     val rowSpec = remember(marginPx) { KeepMargin(marginPx) }
-    Column(Modifier.fillMaxSize().padding(top = 20.dp)) {
-        Box(Modifier.padding(horizontal = EDGE)) {
-            TopBar(shelves, accent, active, resumes) { i ->
-                shelves[i].tiles.firstOrNull()?.let { runCatching { reqs[it.id]?.requestFocus() } }
-            }
-        }
-        Box(Modifier.padding(horizontal = EDGE)) { Hero(nav, accent, onDetails, onOptions) }
+    val gap = when (theme.grid) { Grid.HERO_ROW -> 16.dp; Grid.BUBBLES -> 22.dp; Grid.STRIPS -> 14.dp }
+    val rows: @Composable ColumnScope.() -> Unit = {
         // Vertical moves are owned by the row snap. The default focus scroll fought it and left half
         // rows showing, so it is switched off here; the horizontal rows get KeepMargin below.
         CompositionLocalProvider(LocalBringIntoViewSpec provides NoScroll) {
         Column(Modifier.weight(1f).verticalScroll(scroll)) {
             shelves.forEachIndexed { i, shelf ->
+                val strip: @Composable () -> Unit = {
+                    if (shelf.tiles.isEmpty() && shelf.placeholder) Box(Modifier.padding(start = edge - 10.dp)) { GamesPlaceholder() }
+                    else CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
+                        Row(
+                            // full width; the inner padding is the page margin plus room for the lift and glow
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                                .padding(start = edge, end = edge, top = 14.dp, bottom = if (theme.grid == Grid.BUBBLES) 36.dp else 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(if (shelf.cards) gap else 16.dp),
+                        ) {
+                            // key: a card slot follows its tile when rows load or shrink, else the slot keeps focus and the hero names the old tile
+                            shelf.tiles.forEachIndexed { n, t -> key(t.id) {
+                                val req = reqs.getOrPut(t.id) { FocusRequester() }
+                                if (shelf.cards) GameCard(t, accent, lite, req, onFocus, shelf.square, n) else SystemTile(t, accent, req, onFocus)
+                            } }
+                        }
+                    }
+                }
                 Column(
                     Modifier
                         .onGloballyPositioned { tops[i] = it.positionInParent().y.toInt() }
                         .onFocusChanged { if (it.hasFocus) active = i },
                 ) {
-                    Text(
-                        shelf.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
-                        modifier = Modifier.padding(start = EDGE, top = 10.dp, bottom = 10.dp),
-                    )
-                    if (shelf.tiles.isEmpty() && shelf.placeholder) Box(Modifier.padding(start = EDGE - 10.dp)) { GamesPlaceholder() }
-                    else CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
-                        Row(
-                            // full width; the inner padding is the page margin plus room for the lift and glow
-                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = EDGE, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(if (shelf.cards) 26.dp else 16.dp),
-                        ) {
-                            shelf.tiles.forEach { t ->
-                                val req = reqs.getOrPut(t.id) { FocusRequester() }
-                                if (shelf.cards) GameCard(t, accent, lite, req, onFocus) else SystemTile(t, accent, req, onFocus)
-                            }
+                    if (theme.grid == Grid.STRIPS) Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.Top) {
+                        Column(Modifier.width(170.dp).padding(start = edge, top = 10.dp)) {
+                            Text(stringResource(R.string.row_n, i + 1), fontSize = 12.sp, fontWeight = FontWeight.Medium, letterSpacing = 2.sp, color = theme.text2)
+                            Text(shelf.title.uppercase(), fontFamily = theme.display, fontSize = 32.sp, lineHeight = 32.sp, color = theme.text)
                         }
+                        Box(Modifier.weight(1f)) { strip() }
+                    } else {
+                        Text(
+                            shelf.title, fontFamily = theme.display, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = theme.text,
+                            letterSpacing = if (theme.grid == Grid.BUBBLES) 2.sp else 0.sp,
+                            modifier = Modifier.padding(start = edge, top = 10.dp, bottom = 10.dp),
+                        )
+                        strip()
                     }
                 }
             }
@@ -480,9 +579,31 @@ private fun Home(
         }
         }
     }
-    // Focus restore: back to the last focused tile on every return, else the first tile
+    val hero: @Composable () -> Unit = { Box(Modifier.padding(horizontal = edge)) { Hero(nav, accent, lite, onDetails, onOptions) } }
+    when (theme.tabs) {
+        Tabs.LEFT_RAIL -> Row(Modifier.fillMaxSize()) {
+            Rail(tabs, active, accent, lite, onTab)
+            Column(Modifier.weight(1f).padding(top = 20.dp)) {
+                Row(Modifier.padding(horizontal = edge).height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Brand(accent); Spacer(Modifier.weight(1f)); Status(accent, resumes)
+                }
+                hero(); rows()
+            }
+        }
+        Tabs.MASTHEAD -> Column(Modifier.fillMaxSize().padding(top = 20.dp)) {
+            Box(Modifier.padding(horizontal = edge)) { Masthead(tabs, active, accent, resumes, lite, onTab) }
+            rows()
+        }
+        Tabs.TOP_PILLS -> Column(Modifier.fillMaxSize().padding(top = 20.dp)) {
+            Box(Modifier.padding(horizontal = edge)) { TopBar(tabs, accent, active, resumes, lite, onTab) }
+            hero(); rows()
+        }
+    }
+    // Focus restore: back to the last focused tile on every return, else the first tile.
+    // A fallback pick is not a choice: at launch only System has tiles, and remembering that one kept home on System once Games loaded.
+    var fallback by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(resumes, ids.size) {
-        val id = nav.last.takeIf { it in ids } ?: ids.firstOrNull() ?: return@LaunchedEffect
+        val id = nav.last.takeIf { it in ids && it != fallback } ?: ids.firstOrNull()?.also { fallback = it } ?: return@LaunchedEffect
         runCatching { reqs[id]?.requestFocus() }
     }
 }
@@ -492,7 +613,7 @@ private fun Home(
  * click. TV Surfaces only react to OK and A key presses, so every clickable thing also gets this.
  * A click focuses the item first, so the hero shows what was clicked.
  */
-private fun Modifier.pointerClick(onClick: () -> Unit, onLongClick: (() -> Unit)? = null, focus: FocusRequester? = null) =
+internal fun Modifier.pointerClick(onClick: () -> Unit, onLongClick: (() -> Unit)? = null, focus: FocusRequester? = null) =
     pointerInput(onClick, onLongClick) {
         detectTapGestures(
             onLongPress = onLongClick?.let { long -> { _: Offset -> long() } },
@@ -502,6 +623,11 @@ private fun Modifier.pointerClick(onClick: () -> Unit, onLongClick: (() -> Unit)
 
 /** Page margin. Rows scroll under it, everything else sits inside it. */
 private val EDGE = 56.dp
+/** Ink: the tab rail's width and the page margin to its right. */
+private val RAIL_WIDTH = 100.dp
+private val RAIL_EDGE = 28.dp
+/** Rail icons by tab order: Games, Apps, System, Power, Store. */
+private val RAIL_GLYPHS = listOf(Glyphs.gamepad, Glyphs.apps, Glyphs.settings, Glyphs.sleep, Glyphs.storage)
 
 @OptIn(ExperimentalFoundationApi::class)
 private object NoScroll : BringIntoViewSpec {
@@ -519,8 +645,33 @@ private class KeepMargin(private val margin: Float) : BringIntoViewSpec {
 }
 
 @Composable
-private fun TopBar(shelves: List<Shelf>, accent: Accent, active: Int, resumes: Int, onTab: (Int) -> Unit) {
+private fun TopBar(tabs: List<String>, accent: Accent, active: Int, resumes: Int, lite: Boolean, onTab: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+        Brand(accent)
+        Spacer(Modifier.width(36.dp))
+        tabs.forEachIndexed { i, label -> TabPill(label, i == active, accent, lite) { onTab(i) } }
+        Spacer(Modifier.weight(1f))
+        Status(accent, resumes)
+    }
+}
+
+@Composable
+private fun Brand(accent: Accent) {
+    val theme = LocalTheme.current
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(brush = accent.brush)) { append("onn") }
+            append("shell")
+        },
+        fontFamily = theme.display, fontSize = if (theme.grid == Grid.BUBBLES) 34.sp else 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp,
+    )
+}
+
+/** Network glyph, gamepad glyph and the clock. */
+@Composable
+private fun Status(accent: Accent, resumes: Int) {
     val ctx = LocalContext.current
+    val theme = LocalTheme.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -540,65 +691,139 @@ private fun TopBar(shelves: List<Shelf>, accent: Accent, active: Int, resumes: I
         im.registerInputDeviceListener(l, null)
         onDispose { im.unregisterInputDeviceListener(l) }
     }
-
-    Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            buildAnnotatedString {
-                withStyle(SpanStyle(brush = accent.brush)) { append("onn") }
-                append("shell")
-            },
-            fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp,
-        )
-        Spacer(Modifier.width(36.dp))
-        shelves.forEachIndexed { i, shelf -> TabPill(shelf.title, i == active, accent) { onTab(i) } }
-        Spacer(Modifier.weight(1f))
-        net?.let { Image(it, null, Modifier.size(22.dp), colorFilter = ColorFilter.tint(Ui.TEXT2)) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        net?.let { Image(it, null, Modifier.size(22.dp), colorFilter = ColorFilter.tint(theme.text2)) }
         Spacer(Modifier.width(14.dp))
-        Image(Glyphs.gamepad, null, Modifier.size(24.dp), colorFilter = ColorFilter.tint(if (pad) accent.main else Ui.TEXT3))
+        Image(Glyphs.gamepad, null, Modifier.size(24.dp), colorFilter = ColorFilter.tint(if (pad) accent.main else theme.text3))
         Spacer(Modifier.width(22.dp))
         Text(
             android.text.format.DateFormat.getTimeFormat(ctx).format(Date(now)),
-            fontSize = 22.sp, fontWeight = FontWeight.Medium,
+            fontFamily = theme.display, fontSize = 22.sp, fontWeight = FontWeight.Medium,
         )
     }
 }
 
+/** Ink: the tab rail down the left edge, one glowing square per tab. */
 @Composable
-private fun TabPill(label: String, active: Boolean, accent: Accent, onClick: () -> Unit) {
+private fun Rail(tabs: List<String>, active: Int, accent: Accent, lite: Boolean, onTab: (Int) -> Unit) {
+    val theme = LocalTheme.current
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        Modifier.fillMaxHeight().width(RAIL_WIDTH).background(Color.Black.copy(alpha = 0.25f)).padding(top = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        tabs.forEachIndexed { i, label ->
+            var focused by remember { mutableStateOf(false) }
+            val on = i == active
+            val fill by animateColorAsState(if (on) accent.main else theme.text.copy(alpha = 0.1f), tween(if (lite) 0 else 300), label = "rail")
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // A radial halo instead of an elevation shadow: shadows are a blur pass, too slow on this GPU to keep on screen
+                Box(contentAlignment = Alignment.Center) {
+                if (on && !lite) Box(Modifier.size(90.dp).background(Brush.radialGradient(listOf(accent.main.copy(alpha = 0.45f), Color.Transparent))))
+                Surface(
+                    onClick = { onTab(i) },
+                    modifier = Modifier.size(54.dp)
+                        .onFocusChanged { focused = it.isFocused }.pointerClick(onClick = { onTab(i) }),
+                    shape = ClickableSurfaceDefaults.shape(shape),
+                    colors = clear(),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, theme.text), shape = shape)),
+                ) {
+                    Box(Modifier.fillMaxSize().background(fill), contentAlignment = Alignment.Center) {
+                        val glyph = RAIL_GLYPHS.getOrNull(i)
+                        if (glyph != null) Image(glyph, null, Modifier.size(26.dp), colorFilter = ColorFilter.tint(if (on) theme.bg else theme.text2))
+                        else Text(label.take(2).uppercase(), fontFamily = theme.display, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = if (on) theme.bg else theme.text2)
+                    }
+                }
+                }
+                Text(
+                    label.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
+                    color = if (on || focused) theme.text else theme.text3, modifier = Modifier.padding(top = 5.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Mono: the masthead, brand and status on the first line, the underlined tabs on the second, over a hard rule. */
+@Composable
+private fun Masthead(tabs: List<String>, active: Int, accent: Accent, resumes: Int, lite: Boolean, onTab: (Int) -> Unit) {
+    val theme = LocalTheme.current
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                buildAnnotatedString { append("onn"); withStyle(SpanStyle(color = accent.main)) { append("shell") } },
+                fontFamily = theme.display, fontSize = 56.sp, lineHeight = 50.sp, letterSpacing = 1.sp,
+            )
+            Spacer(Modifier.weight(1f))
+            Status(accent, resumes)
+        }
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(28.dp), modifier = Modifier.padding(top = 6.dp)) {
+            tabs.forEachIndexed { i, label ->
+                var focused by remember { mutableStateOf(false) }
+                val on = i == active
+                val under by animateFloatAsState(if (on) 1f else 0f, tween(if (lite) 0 else 300), label = "underline")
+                Surface(
+                    onClick = { onTab(i) },
+                    modifier = Modifier.onFocusChanged { focused = it.isFocused }.pointerClick(onClick = { onTab(i) }),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(0.dp)),
+                    colors = clear(),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                ) {
+                    Column(Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max)) { // else the first tab's underline box claims the whole row
+                        Text(label.uppercase(), fontSize = 15.sp, fontWeight = FontWeight.Medium, letterSpacing = 2.sp, color = if (on || focused) theme.text else theme.text2, modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp))
+                        Box(Modifier.fillMaxWidth(under.coerceAtLeast(0.01f)).height(4.dp).background(if (under > 0f) accent.main else Color.Transparent))
+                    }
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(2.dp).background(theme.text).padding(top = 0.dp))
+    }
+}
+
+@Composable
+internal fun TabPill(label: String, active: Boolean, accent: Accent, lite: Boolean, onClick: () -> Unit) {
+    val theme = LocalTheme.current
     var focused by remember { mutableStateOf(false) }
+    // The active pill's fill fades in and out instead of jumping (300 ms; instant in Lite)
+    val fillAlpha by animateFloatAsState(if (active) 1f else 0f, tween(if (lite) 0 else 300), label = "pill")
     Surface(
         onClick = onClick,
         modifier = Modifier.padding(end = 8.dp).onFocusChanged { focused = it.isFocused }.pointerClick(onClick),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
         colors = clear(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
-        border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(2.dp, Color.White))),
+        border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(2.dp, theme.text))),
     ) {
-        Text(
-            label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-            color = if (active || focused) Color.White else Ui.TEXT2,
-            modifier = Modifier
-                .background(if (active) accent.brush else SolidColor(Color.Transparent), RoundedCornerShape(50))
-                .padding(horizontal = 18.dp, vertical = 7.dp),
-        )
+        Box(Modifier.background(theme.text.copy(alpha = 0.08f), RoundedCornerShape(50))) {
+            Box(Modifier.matchParentSize().graphicsLayer { alpha = fillAlpha }.background(accent.brush, RoundedCornerShape(50)))
+            Text(
+                label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                color = if (active) (if (theme === Themes.SLATE) theme.bg else theme.text) else if (focused) theme.text else theme.text2,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 7.dp),
+            )
+        }
     }
 }
 
 /** The big title area: name, facts, and the button actions for the focused item. */
 @Composable
-private fun Hero(nav: Nav, accent: Accent, onDetails: (Tile) -> Unit, onOptions: (Tile) -> Unit) {
+private fun Hero(nav: Nav, accent: Accent, lite: Boolean, onDetails: (Tile) -> Unit, onOptions: (Tile) -> Unit) {
+    val theme = LocalTheme.current
     val t = nav.focused
     val app = t?.app
     Column(Modifier.fillMaxWidth().height(196.dp).padding(top = 22.dp)) {
-        Text(
-            t?.label ?: "", fontSize = 48.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
+        Crossfade(t?.label ?: "", animationSpec = tween(if (lite) 0 else 250), label = "title") { label ->
+            Text(
+                label, fontFamily = theme.display, fontSize = if (theme.grid == Grid.HERO_ROW) 48.sp else 44.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = (-1).sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
         Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (app != null) {
                 Chip(stringResource(if (app.isGame) R.string.detail_game else R.string.detail_app))
                 if (app.version.isNotEmpty()) Chip(app.version)
-            } else if (t != null) Text(t.desc, fontSize = 19.sp, color = Ui.TEXT2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            } else if (t != null) Text(t.desc, fontSize = 19.sp, color = theme.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.weight(1f))
         if (nav.hint.isNotEmpty()) Text(nav.hint, fontSize = 17.sp, color = accent.main, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -614,7 +839,7 @@ private fun Hero(nav: Nav, accent: Accent, onDetails: (Tile) -> Unit, onOptions:
 }
 
 @Composable
-private fun Chip(text: String) {
+internal fun Chip(text: String) {
     Text(
         text, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Ui.TEXT2, maxLines = 1,
         modifier = Modifier.padding(end = 10.dp).border(1.dp, Ui.SURFACE_HI, RoundedCornerShape(50))
@@ -624,13 +849,13 @@ private fun Chip(text: String) {
 
 /** A button hint: the face button letter in a circle, then what it does. */
 @Composable
-private fun ActionPill(button: String, label: String, fill: Brush?, onClick: () -> Unit) {
+internal fun ActionPill(button: String, label: String, fill: Brush?, onClick: () -> Unit) {
     Row(
         Modifier.clip(RoundedCornerShape(50)).pointerClick(onClick).background(fill ?: SolidColor(Ui.SURFACE))
             .padding(start = 8.dp, end = 18.dp, top = 7.dp, bottom = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(24.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(24.dp).clip(CircleShape).background(LocalTheme.current.text), contentAlignment = Alignment.Center) {
             Text(button, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.Black)
         }
         Spacer(Modifier.width(10.dp))
@@ -655,70 +880,98 @@ private fun GamesPlaceholder() {
 }
 
 @Composable
-private fun clear() = ClickableSurfaceDefaults.colors(
-    containerColor = Color.Transparent, contentColor = Color.White,
-    focusedContainerColor = Color.Transparent, focusedContentColor = Color.White,
-    pressedContainerColor = Color.Transparent, pressedContentColor = Color.White,
+internal fun clear() = ClickableSurfaceDefaults.colors(
+    containerColor = Color.Transparent, contentColor = LocalTheme.current.text,
+    focusedContainerColor = Color.Transparent, focusedContentColor = LocalTheme.current.text,
+    pressedContainerColor = Color.Transparent, pressedContentColor = LocalTheme.current.text,
 )
 
-/** App or game art. Focus lifts it, frames it in the accent gradient and (Full) casts a glow in its own color. */
+/** App or game art. Focus is the theme's: a ring and a lift (Slate), a glow (Ink) or an outline with the name bar filled (Mono). */
 @Composable
-private fun GameCard(t: Tile, accent: Accent, lite: Boolean, req: FocusRequester, onFocus: (Tile) -> Unit) {
+private fun GameCard(t: Tile, accent: Accent, lite: Boolean, req: FocusRequester, onFocus: (Tile) -> Unit, square: Boolean, index: Int) {
+    val theme = LocalTheme.current
     var isFocused by remember { mutableStateOf(false) }
     val app = t.app
-    val shape = RoundedCornerShape(16.dp)
-    Column(Modifier.width(248.dp)) {
+    val shape = RoundedCornerShape(theme.tileRadius)
+    val (w, h) = when (theme.grid) {
+        Grid.HERO_ROW -> if (square) 150.dp to 150.dp else 220.dp to 124.dp
+        Grid.BUBBLES -> 145.dp to 145.dp
+        Grid.STRIPS -> 130.dp to 130.dp
+    }
+    val lift by animateDpAsState(if (isFocused && theme.focus == Focus.RING && !lite) (-14).dp else 0.dp, tween(200), label = "lift")
+    val stagger = if (theme.grid == Grid.BUBBLES && index % 2 == 1) 20.dp else 0.dp
+    val focusColor = if (theme.focus == Focus.RING) theme.text else accent.main
+    val focusWidth = when (theme.focus) { Focus.RING -> 5.dp; Focus.GLOW -> 8.dp; Focus.OUTLINE -> 4.dp }
+    Column(Modifier.width(w).offset(y = lift + stagger)) {
+        Box(contentAlignment = Alignment.Center) {
+        // Ink's glow is a radial halo behind the tile, not an elevation shadow (a blur pass that cost 19 ms frames)
+        if (isFocused && !lite && theme.focus == Focus.GLOW) Box(Modifier.size(w + 40.dp, h + 40.dp).background(Brush.radialGradient(listOf(accent.main.copy(alpha = 0.55f), Color.Transparent))))
         Surface(
             onClick = t.onClick,
             onLongClick = t.onLongClick,
-            modifier = Modifier.size(248.dp, 140.dp)
-                // clip = false: a clipping shadow would cut off the focus lift and the gradient frame
-                .then(if (isFocused && !lite && app != null) Modifier.shadow(28.dp, shape, clip = false, ambientColor = Color(app.color), spotColor = Color(app.color)) else Modifier)
+            modifier = Modifier.size(w, h)
+                // clip = false: a clipping shadow would cut off the focus lift and the frame
+                .then(if (isFocused && !lite && theme.focus == Focus.RING && app != null) Modifier.shadow(28.dp, shape, clip = false, ambientColor = Color(app.color), spotColor = Color(app.color))
+                      else Modifier)
                 .focusRequester(req)
                 .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocus(t) }
                 .pointerClick(t.onClick, t.onLongClick, req),
             shape = ClickableSurfaceDefaults.shape(shape),
             colors = clear(),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = if (lite) 1.05f else 1.1f),
-            border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, accent.brush))),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = if (lite) 1.04f else 1.08f),
+            border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(focusWidth, focusColor), shape = shape)),
         ) {
-            Box(Modifier.fillMaxSize().background(app?.let { lerp(Color(it.color), Ui.BG, 0.25f) } ?: Ui.SURFACE), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().background(app?.let { lerp(Color(it.color), theme.bg, 0.25f) } ?: theme.surface), contentAlignment = Alignment.Center) {
                 when {
                     app?.banner != null -> Image(app.banner, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     app?.icon != null -> Image(app.icon, null, Modifier.size(64.dp))
                 }
+                if (theme.grid != Grid.STRIPS) Box(
+                    Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, theme.bg.copy(alpha = 0.9f))))
+                        .padding(start = 10.dp + theme.tileRadius / 2, end = 10.dp, top = 22.dp, bottom = 8.dp), // clear of the corner curve
+                ) {
+                    Text(t.label, fontFamily = theme.display, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
-        Text(
-            t.label, fontSize = 15.sp, fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (isFocused) Color.White else Ui.TEXT2, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 12.dp, start = 4.dp),
-        )
+        }
+        if (theme.grid == Grid.STRIPS) Column {
+            Box(Modifier.fillMaxWidth().height(2.dp).background(if (isFocused) accent.main else theme.text))
+            Text(
+                t.label, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (isFocused) theme.bg else theme.text,
+                modifier = Modifier.fillMaxWidth().background(if (isFocused) accent.main else theme.bg).padding(horizontal = 8.dp, vertical = 5.dp),
+            )
+        }
     }
 }
 
-/** System and Power: rounded tiles with the icon top left and the label bottom left; focus fills them with the accent gradient. */
+/** System and Power: rounded tiles with the icon top left and the label bottom left; focus fills them with the accent. */
 @Composable
 private fun SystemTile(t: Tile, accent: Accent, req: FocusRequester, onFocus: (Tile) -> Unit) {
+    val theme = LocalTheme.current
     var isFocused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(if (theme.grid == Grid.STRIPS) 0.dp else 20.dp)
     Surface(
         onClick = t.onClick,
         onLongClick = t.onLongClick,
         modifier = Modifier.size(136.dp, 112.dp).focusRequester(req)
             .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocus(t) }
             .pointerClick(t.onClick, t.onLongClick, req),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape),
         colors = clear(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
     ) {
         Column(
-            Modifier.fillMaxSize().background(if (isFocused) accent.brush else SolidColor(Ui.SURFACE)).padding(14.dp),
+            Modifier.fillMaxSize().background(if (isFocused) accent.brush else SolidColor(theme.surface)).padding(14.dp),
         ) {
-            t.icon?.let { Image(it, null, Modifier.size(28.dp), colorFilter = ColorFilter.tint(Color.White)) }
+            val fg = if (isFocused && theme !== Themes.SLATE) theme.bg else theme.text
+            t.icon?.let { Image(it, null, Modifier.size(28.dp), colorFilter = ColorFilter.tint(fg)) }
             Spacer(Modifier.weight(1f))
             Text(
                 t.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 17.sp,
-                color = if (isFocused) Color.White else Ui.TEXT2, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                color = if (isFocused) fg else theme.text2, maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -751,13 +1004,13 @@ private fun Panel(title: String, accent: Accent, content: @Composable ColumnScop
 }
 
 @Composable
-private fun Line(text: String, color: Color = Color.White) {
+private fun Line(text: String, color: Color = LocalTheme.current.text) {
     Text(text, color = color, fontSize = 22.sp, modifier = Modifier.padding(vertical = 6.dp))
 }
 
 /** Vertical list of pill choices, first one focused. Focus fills the pill with the accent gradient. */
 @Composable
-private fun Choices(accent: Accent, items: List<Pair<String, () -> Unit>>) {
+internal fun Choices(accent: Accent, items: List<Pair<String, () -> Unit>>) {
     val first = remember { FocusRequester() }
     items.forEachIndexed { i, (label, action) ->
         var isFocused by remember { mutableStateOf(false) }
@@ -774,7 +1027,7 @@ private fun Choices(accent: Accent, items: List<Pair<String, () -> Unit>>) {
         ) {
             Text(
                 label, fontSize = 24.sp, fontWeight = FontWeight.SemiBold,
-                color = if (isFocused) Color.White else Ui.TEXT2,
+                color = if (isFocused) LocalTheme.current.text else Ui.TEXT2,
                 modifier = Modifier
                     .background(if (isFocused) accent.brush else SolidColor(Ui.SURFACE), RoundedCornerShape(50))
                     .padding(horizontal = 28.dp, vertical = 12.dp),

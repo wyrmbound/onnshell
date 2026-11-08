@@ -51,7 +51,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val binderReceived = Shizuku.OnBinderReceivedListener { Inputd.start(this) }
+    private val binderReceived = Shizuku.OnBinderReceivedListener {
+        Inputd.start(this)
+        Thread { com.xplsh.onnshell.data.GameFiles.grantStorage(packageName) }.start() // the file picker reads the drives
+    }
 
     override fun onDestroy() {
         Shizuku.removeBinderReceivedListener(binderReceived)
@@ -85,6 +88,13 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
         val code = e.keyCode
+        // Just back from a game: drop leftover gameplay presses (see GameSession.endedAt)
+        if (justBackFromGame() && code != KeyEvent.KEYCODE_HOME) {
+            if (e.action == KeyEvent.ACTION_DOWN) swallowed += code
+            return true
+        }
+        // ...and the release of a press that began inside that window (X/Y/Options/PS act on release)
+        if (e.action == KeyEvent.ACTION_UP && swallowed.remove(code)) return true
         Pad.lastInput = System.currentTimeMillis()
         if (Pad.testing) {
             // Exit: remote Back, or Share (SELECT) and Options (START) together
@@ -101,6 +111,8 @@ class MainActivity : ComponentActivity() {
             KeyEvent.KEYCODE_BUTTON_X -> Cmd.DETAILS
             KeyEvent.KEYCODE_BUTTON_Y -> Cmd.OPTIONS
             KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_MENU -> Cmd.MENU
+            KeyEvent.KEYCODE_BUTTON_L1 -> Cmd.TAB_PREV // shoulders flip the home tabs
+            KeyEvent.KEYCODE_BUTTON_R1 -> Cmd.TAB_NEXT
             // PS is HOME everywhere: inputd presses HOME for other apps, here it closes any panel
             KeyEvent.KEYCODE_BUTTON_MODE -> Cmd.HOME
             KeyEvent.KEYCODE_BUTTON_SELECT -> return true // only used in combos
@@ -119,6 +131,12 @@ class MainActivity : ComponentActivity() {
             KeyEvent(e.downTime, e.eventTime, e.action, mapped, e.repeatCount, e.metaState, e.deviceId, e.scanCode, e.flags, e.source)
         )
     }
+
+    private val swallowed = mutableSetOf<Int>()
+    private fun justBackFromGame() = SystemClock.uptimeMillis() - com.xplsh.onnshell.display.GameSession.endedAt < 2000
+
+    // In POINTER mode the DS4 touchpad drives Android's mouse pointer and its click is a tap; guard those too.
+    override fun dispatchTouchEvent(e: MotionEvent): Boolean = if (justBackFromGame()) true else super.dispatchTouchEvent(e)
 
     override fun dispatchGenericMotionEvent(e: MotionEvent): Boolean {
         if (Pad.testing && e.isFromSource(InputDevice.SOURCE_JOYSTICK)) {

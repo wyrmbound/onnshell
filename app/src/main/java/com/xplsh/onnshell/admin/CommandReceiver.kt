@@ -3,6 +3,7 @@ package com.xplsh.onnshell.admin
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import kotlinx.coroutines.launch
 
 /**
  * ADB control path, only the shell can call it (manifest requires DUMP):
@@ -25,6 +26,43 @@ class CommandReceiver : BroadcastReceiver() {
                     com.xplsh.onnshell.data.Prefs.setLite(ctx, lite)
                     com.xplsh.onnshell.ui.Pad.lite = lite
                     "lite=$lite"
+                }
+                // Store installer without the UI (tests, and games sent from the PC by URL):
+                // --es id I --es url U [--es sha256 S] [--el size N]; progress and result go to logcat tag GameInstaller
+                "STORE_INSTALL" -> {
+                    val id = intent.getStringExtra("id") ?: return fail("missing --es id")
+                    val url = intent.getStringExtra("url") ?: return fail("missing --es url")
+                    val sha = intent.getStringExtra("sha256"); val size = intent.getLongExtra("size", 0L)
+                    val app = ctx.applicationContext
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        val r = com.xplsh.onnshell.data.GameInstaller.install(app, id, url, sha, size) { f, what ->
+                            android.util.Log.i("GameInstaller", "$id ${(f * 100).toInt()}% $what")
+                        }
+                        android.util.Log.i("GameInstaller", "$id result: ${r.exceptionOrNull() ?: "ok"}")
+                    }
+                    "started $id (watch: logcat -s GameInstaller)"
+                }
+                // Store UI hooks for tests, same paths as the pad: STORE_OPEN (shows the tab), STORE_FOCUS --es id, STORE_GET --es id
+                "STORE_OPEN" -> com.xplsh.onnshell.data.StoreState.current?.let { it.openRequest = true; "opening" } ?: "no store yet (is HOME up?)"
+                "STORE_FOCUS" -> com.xplsh.onnshell.data.StoreState.current?.let { it.focusRequest = intent.getStringExtra("id") ?: return fail("missing --es id"); "focus requested" } ?: "no store yet"
+                "STORE_GET" -> {
+                    val id = intent.getStringExtra("id") ?: return fail("missing --es id")
+                    val s = com.xplsh.onnshell.data.StoreState.current ?: return fail("no store yet (is HOME up?)")
+                    val e = s.entry(id) ?: return fail("unknown id $id (open the Store once so the catalog is loaded)")
+                    if (s.install(e)) "installing $id" else "busy with ${s.busy}"
+                }
+                // --es id I (64-bit runner game) or --es pkg P (installed app; result in logcat tag GameInstaller)
+                "STORE_UNINSTALL" -> intent.getStringExtra("pkg")?.let { pkg ->
+                    val app = ctx.applicationContext
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        android.util.Log.i("GameInstaller", "uninstall $pkg: ${com.xplsh.onnshell.data.GameInstaller.uninstallPackage(app, pkg).exceptionOrNull() ?: "ok"}")
+                    }
+                    "uninstalling $pkg"
+                } ?: run { com.xplsh.onnshell.data.GameInstaller.uninstall(ctx, intent.getStringExtra("id") ?: return fail("missing --es id or --es pkg")); "removed" }
+                // Theme for tests (screenshots per look): --es id slate|ink|mono. Takes effect when HOME is recreated.
+                "THEME" -> {
+                    val id = intent.getStringExtra("id") ?: return fail("missing --es id")
+                    com.xplsh.onnshell.data.Prefs.setThemeId(ctx, id); "theme=$id"
                 }
                 "APPLY" -> Policy.apply(ctx)
                 "UNPROVISION" -> Policy.unprovision(ctx)

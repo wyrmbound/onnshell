@@ -11,7 +11,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.MutableSharedFlow
 
 /** ARRIVE: a HOME intent reached us from another app (just show Home). LAST: PS pressed while already home (back to the last app or the suspended game). */
-enum class Cmd { DETAILS, OPTIONS, MENU, HOME, ARRIVE, LAST }
+enum class Cmd { DETAILS, OPTIONS, MENU, HOME, ARRIVE, LAST, TAB_PREV, TAB_NEXT }
 
 /**
  * Gamepad state shared between MainActivity (which sees raw events) and the UI.
