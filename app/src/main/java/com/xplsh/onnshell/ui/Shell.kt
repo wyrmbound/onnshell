@@ -270,9 +270,11 @@ fun Shell(resumes: Int) {
     /** Starts a 64-bit game, or first asks for its files when they are not where the game reads them (requirements.json "pick"). */
     fun openNative(id: String, label: String) {
         val need = com.xplsh.onnshell.data.Requirements.forId(ctx, id)
-        val pick = need?.pick
-        if (pick != null && !com.xplsh.onnshell.data.Requirements.present(pick)) screen = Screen.GetFiles(label, id, need)
-        else startNative(id)
+        val pick = need?.pick ?: return startNative(id)
+        scope.launch { // off the main thread: for a game under /data/local/tmp the check asks the shell user
+            if (withContext(Dispatchers.IO) { com.xplsh.onnshell.data.Requirements.present(pick) }) startNative(id)
+            else screen = Screen.GetFiles(label, id, need)
+        }
     }
     LaunchedEffect(store.launchRequest) { store.launchRequest?.let { id -> store.launchRequest = null; openNative(id, store.entry(id)?.name ?: id) } }
     fun launch(a: AppEntry) {
@@ -429,19 +431,19 @@ fun Shell(resumes: Int) {
                     Spacer(Modifier.size(16.dp))
                     var copying by remember(s) { mutableStateOf<Float?>(null) }
                     var failed by remember(s) { mutableStateOf<String?>(null) }
-                    val found by produceState<List<java.io.File>?>(null, s) {
+                    val found by produceState<List<com.xplsh.onnshell.data.GameFiles.Found>?>(null, s) {
                         value = withContext(Dispatchers.IO) {
                             com.xplsh.onnshell.data.GameFiles.grantStorage(ctx.packageName)
                             com.xplsh.onnshell.data.Requirements.candidates(pick, com.xplsh.onnshell.data.GameFiles.walk(com.xplsh.onnshell.data.GameFiles.roots()))
                         }
                     }
                     val list = found
-                    fun use(f: java.io.File) {
+                    fun use(f: com.xplsh.onnshell.data.GameFiles.Found) {
                         copying = 0f; failed = null
                         scope.launch {
                             var shown = -1
                             val r = withContext(Dispatchers.IO) {
-                                runCatching { com.xplsh.onnshell.data.Requirements.install(pick, f) { p -> val pct = (p * 100).toInt(); if (pct != shown) { shown = pct; copying = p } } }
+                                runCatching { com.xplsh.onnshell.data.Requirements.install(pick, f, s.id, java.io.File(ctx.getExternalFilesDir(null), "staging")) { p -> val pct = (p * 100).toInt(); if (pct != shown) { shown = pct; copying = p } } }
                             }
                             if (r.isSuccess) { screen = Screen.Home; startNative(s.id) }
                             else { copying = null; failed = r.exceptionOrNull()?.message ?: "?" }
@@ -462,9 +464,9 @@ fun Shell(resumes: Int) {
                             Line(stringResource(R.string.files_pick))
                             val internal = stringResource(R.string.files_internal); val usb = stringResource(R.string.files_usb)
                             Choices(accent, list.take(12).map { f ->
-                                val where = if (f.path.startsWith("/storage/emulated/0")) internal else usb
-                                val size = if (f.isFile) " · %d MB".format(f.length() / 1048576) else ""
-                                "${f.name}$size · $where" to { use(f) }
+                                val where = if (f.file.path.startsWith("/storage/emulated/0")) internal else usb
+                                val size = if (f.file.isFile) " · %d MB".format(f.file.length() / 1048576) else ""
+                                "${f.entry?.substringAfterLast('/') ?: f.file.name}$size · $where" to { use(f) }
                             } + send + (stringResource(R.string.cancel) to { screen = Screen.Home }))
                         }
                     }

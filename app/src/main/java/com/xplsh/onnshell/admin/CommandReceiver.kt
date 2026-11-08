@@ -26,8 +26,12 @@ class CommandReceiver : BroadcastReceiver() {
                     val d = com.xplsh.onnshell.data.Speaker.chime(ctx, intent.getFloatExtra("vol", 0.3f))
                     "speaker=${d?.let { "${it.productName} id ${it.id}" } ?: "none (default output)"}"
                 }
-                "STORE_FILES" -> com.xplsh.onnshell.data.StoreState.current?.let { st -> // which Store games have their files on the box
-                    st.files.entries.groupBy({ it.value }, { it.key }).entries.joinToString(" ") { (k, v) -> if (v.size <= 12) "$k=$v" else "$k=${v.size}" }
+                // Which Store games have their files on the box; a * marks an installed one. --ez all true lists the long groups too.
+                "STORE_FILES" -> com.xplsh.onnshell.data.StoreState.current?.let { st ->
+                    val all = intent.getBooleanExtra("all", false)
+                    st.files.entries.groupBy({ it.value }, { it.key }).entries.joinToString(" ") { (k, v) ->
+                        if (v.size <= 12 || all) "$k=${v.map { id -> if (st.installed[id] == true) "$id*" else id }}" else "$k=${v.size}"
+                    }
                 } ?: "no store yet"
                 // Extra Store lists (Recompa index format): --es url U adds, --ez remove true takes it out; no url lists them
                 "STORE_SOURCE" -> {
@@ -106,7 +110,8 @@ class CommandReceiver : BroadcastReceiver() {
                 "HUD" -> { val on = intent.getBooleanExtra("on", true); com.xplsh.onnshell.data.Prefs.setPerfHud(ctx, on); "hud=$on" }
                 // Picture in picture, for tests: CORNER moves the running game to the corner, CORNER_EXIT brings it back
                 // A regular Android game (no 64-bit game screen open) goes through the hidden screen: --es pkg, or the app in front
-                "CORNER" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.startFloat() }; "corner requested" }
+                // a named --es pkg always means that Android game: the 64-bit game screen's instance can outlive its session
+                "CORNER" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.takeIf { !intent.hasExtra("pkg") }?.let { a -> a.runOnUiThread { a.startFloat() }; "corner requested" }
                     ?: (intent.getStringExtra("pkg") ?: com.xplsh.onnshell.data.Inputd.app).let { g -> android.os.Handler(android.os.Looper.getMainLooper()).post { com.xplsh.onnshell.display.HiddenCorner.enter(ctx, g) }; "hidden corner requested for $g" }
                 "CORNER_EXIT" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.leaveCorner() }; "full screen requested" }
                     ?: run { android.os.Handler(android.os.Looper.getMainLooper()).post { com.xplsh.onnshell.display.HiddenCorner.exit(ctx) }; "hidden corner exit requested" }

@@ -222,7 +222,9 @@ object GameInstaller {
         for (m in missing) stubFor(ctx, m).let { File(stage, m).writeBytes(it) }
         File(stage, "game.json").writeText("""{ "id": "$id", "entry": "${entry.name}", "engine": "$engine" }""" + "\n")
         val g = "$GAMES/$id"
-        val rc = ShellUser.run("rm -rf '$g' && mkdir -p '$g' && cp -r '${stage.absolutePath}/.' '$g/' && chmod -R a+rX '$g'")
+        // an update keeps data (saves, the owner's game file) and a start line written for it; only uninstall removes those
+        val rc = ShellUser.run("mkdir -p '$g' && find '$g' -mindepth 1 -maxdepth 1 ! -name data ! -name run.sh -exec rm -rf {} + && " +
+            "cp -r '${stage.absolutePath}/.' '$g/' && chmod -R a+rX '$g'")
         check(rc == 0) { "could not place the game on the box ($rc)" }
         stage.deleteRecursively()
         val keep = File(Apps.nativeGamesDir(ctx), "$id.apk").apply { parentFile!!.mkdirs() }

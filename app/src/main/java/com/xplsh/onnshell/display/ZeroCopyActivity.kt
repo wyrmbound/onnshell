@@ -229,8 +229,14 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
 
     private fun offer() {
         val lib = applicationInfo.nativeLibraryDir + "/libbufbridge.so"
-        val rc = try { bridge?.offer(buffers, "onn-m4", lib, applicationInfo.sourceDir) } catch (e: Exception) { Log.e(TAG, "offer: $e"); null }
-        Log.i(TAG, "bridge offer -> $rc (lib $lib)")
+        // One offer waits 30 s for the game to listen. A game can take longer (Ocarina unpacks its ROM first, about
+        // 100 s, and then sat on a black screen forever), so offer again while nobody listens and this session is current.
+        val t = tag
+        while (true) {
+            val rc = try { bridge?.offer(buffers, "onn-m4", lib, applicationInfo.sourceDir) } catch (e: Exception) { Log.e(TAG, "offer: $e"); null }
+            Log.i(TAG, "bridge offer -> $rc (lib $lib)")
+            if (rc != -111 || t != tag || isDestroyed) break // -111: connection refused, nobody listening yet
+        }
     }
 
     private val releaser = java.util.concurrent.Executors.newSingleThreadExecutor()

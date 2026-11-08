@@ -22,6 +22,41 @@
     "file": "The cartridge ROM: .gb or .gbc for Red, Blue and Yellow, .gba for FireRed, LeafGreen and Emerald. Matched by SHA-1.",
     "goes": "The game asks for it on first start, through OnnShell's file picker."
   },
+  "dkr-r": {
+    "game": "Diddy Kong Racing",
+    "version": "Nintendo 64, USA. Checked on this box: the first USA release (v1.0)",
+    "file": "The cartridge ROM (.z64, .n64 or .v64), loose or inside a zip",
+    "check": "v1.0 in .z64 byte order has SHA-1 0cb115d8716dbbc2922fda38e533b9fe63bb9670",
+    "goes": "OnnShell finds it on the box, checks it is this game, and puts it in place the first time you start the game.",
+    "note": "Runs slowly here for now, about 14 frames a second.",
+    "pick": { "type": "file", "ext": ["z64", "n64", "v64"], "has": "Diddy Kong Racing", "sha1": ["0cb115d8716dbbc2922fda38e533b9fe63bb9670"],
+              "dir": "/data/local/tmp/games/dkr-r/data", "name": "dkr.z64", "arg": true }
+  },
+  "soh": {
+    "game": "The Legend of Zelda: Ocarina of Time",
+    "version": "Nintendo 64. Checked on this box: USA v1.2. The port lists the other versions it accepts.",
+    "file": "The cartridge ROM (.z64, .n64 or .v64), loose or inside a zip",
+    "goes": "OnnShell puts it in place the first time you start the game and creates the SOH folder on the box's storage, where the game keeps its saves. The first start takes a few minutes while the game unpacks.",
+    "pick": { "type": "file", "ext": ["z64", "n64", "v64"], "has": "THE LEGEND OF ZELDA",
+              "dir": "/data/local/tmp/games/soh/data", "name": "oot.z64",
+              "seed": ["soh.otr", "assets", "gamecontrollerdb.txt"], "seedDir": "/storage/emulated/0/SOH" }
+  },
+  "2ship2harkinian": {
+    "game": "The Legend of Zelda: Majora's Mask",
+    "version": "Nintendo 64. Checked on this box: USA",
+    "file": "The cartridge ROM (.z64, .n64 or .v64), loose or inside a zip",
+    "goes": "OnnShell puts it in place the first time you start the game; the first start takes a few minutes while the game unpacks.",
+    "pick": { "type": "file", "ext": ["z64", "n64", "v64"], "has": "ZELDA MAJORA'S MASK",
+              "dir": "/data/local/tmp/games/2ship2harkinian/data", "name": "mm.z64" }
+  },
+  "super-metroid": {
+    "game": "Super Metroid",
+    "version": "Super Nintendo. Checked on this box: the Japan, USA release",
+    "file": "The cartridge ROM (.sfc or .smc), loose or inside a zip",
+    "goes": "OnnShell puts it in place the first time you start the game.",
+    "pick": { "type": "file", "ext": ["sfc", "smc"], "has": "Super Metroid",
+              "dir": "/data/local/tmp/games/super-metroid/data", "name": "sm.smc" }
+  },
   "tenkaichi3decompandroid": {
     "game": "Dragon Ball Z: Budokai Tenkaichi 3",
     "version": "PS2, USA release SLUS-21678",
