@@ -37,7 +37,10 @@ object Prefs {
     fun setCornerSize(ctx: Context, pct: Int) = sp(ctx).edit().putInt("corner_size", pct).apply()
     /** Corner window position: 0 bottom right (default), 1 bottom left, 2 top right, 3 top left. */
     fun cornerPos(ctx: Context) = sp(ctx).getInt("corner_pos", 0)
-    fun setCornerPos(ctx: Context, i: Int) = sp(ctx).edit().putInt("corner_pos", i).apply()
+    fun setCornerPos(ctx: Context, i: Int) = sp(ctx).edit().putInt("corner_pos", i).remove("corner_x").remove("corner_y").apply()
+    /** Where the corner window was dragged to (top-left, screen pixels), or null to use the corner preset. */
+    fun cornerAt(ctx: Context): Pair<Int, Int>? = sp(ctx).run { if (contains("corner_x")) getInt("corner_x", 0) to getInt("corner_y", 0) else null }
+    fun setCornerAt(ctx: Context, x: Int, y: Int) = sp(ctx).edit().putInt("corner_x", x).putInt("corner_y", y).apply()
 
     /** Game sound while the game plays in the corner window: off by default, so the app behind it is heard. */
     fun cornerGameAudio(ctx: Context) = sp(ctx).getBoolean("corner_audio", false)

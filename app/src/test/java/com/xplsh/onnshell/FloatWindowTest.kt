@@ -18,4 +18,9 @@ class FloatWindowTest {
         assertEquals(632 to 354, FloatWindow.size(1920, 33)) // Android TV's own PiP here: 384x216
         assertEquals(864 to 486, FloatWindow.size(1920, 45))
     }
+
+    @Test fun dragStaysOnScreen() {
+        assertEquals(0, FloatWindow.clamp(-40, 1280)); assertEquals(1280, FloatWindow.clamp(1500, 1280)); assertEquals(600, FloatWindow.clamp(600, 1280))
+        assertEquals(0, FloatWindow.clamp(10, -5)) // a window wider than the screen pins to the left edge
+    }
 }

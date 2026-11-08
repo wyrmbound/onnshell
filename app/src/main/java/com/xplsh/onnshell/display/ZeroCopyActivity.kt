@@ -114,7 +114,8 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
             return
         }
         val prefs = com.xplsh.onnshell.data.Prefs
-        val win = FloatWindow(this, prefs.cornerSize(this), prefs.cornerPos(this))
+        val app = applicationContext
+        val win = FloatWindow(this, prefs.cornerSize(this), prefs.cornerPos(this), prefs.cornerAt(this)) { x, y -> prefs.setCornerAt(app, x, y) }
         runCatching { win.show() }.onFailure { Log.w(TAG, "corner window refused: $it"); enterCorner(); return }
         float = win; floatHolder = win.holder
         GameSession.inCorner = true
@@ -402,7 +403,9 @@ object GameSession {
     fun start(id: String) {
         if (!Regex("[a-z0-9][a-z0-9-]*").matches(id)) { Log.e("M4", "bad game id $id"); return } // goes into a shell line
         worker.execute {
-            ShellUser.run("while pidof linker64 >/dev/null; do sleep 0.1; done; " +
+            // One game at a time: a leftover game (suspended by a screen that no longer exists, so stop() never killed it) is
+            // ended first. A frozen process ignores TERM until thawed, so KILL; waiting alone hung every later launch.
+            ShellUser.run("p=\$(pidof linker64); [ -n \"\$p\" ] && kill -KILL \$p; while pidof linker64 >/dev/null; do sleep 0.1; done; " +
                 // a game built for the box itself (Mario) brings its own run.sh; APK ports go through run_apk.sh
                 "G=/data/local/tmp/games/$id; if [ -f \$G/run.sh ]; then set -- \$G/run.sh; else set -- /data/local/tmp/games/run_apk.sh \$G; fi; " +
                 "nohup sh \"\$@\" </dev/null >/dev/null 2>&1 &")
