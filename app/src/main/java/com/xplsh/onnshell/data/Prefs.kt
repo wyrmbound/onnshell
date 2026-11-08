@@ -50,6 +50,10 @@ object Prefs {
     fun boxSpeaker(ctx: Context) = sp(ctx).getBoolean("box_speaker", false)
     fun setBoxSpeaker(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("box_speaker", on).apply()
 
+    /** Lobby music on the home screen. On by default. */
+    fun lobbyMusic(ctx: Context) = sp(ctx).getBoolean("lobby_music", true)
+    fun setLobbyMusic(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("lobby_music", on).apply()
+
     /** Minutes without input before the controller is turned off; 0 = never. */
     val PAD_IDLE_MINS = listOf(10, 30, 60, 120, 0)
     fun padIdleMins(ctx: Context) = sp(ctx).getInt("pad_idle_min", 60)

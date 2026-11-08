@@ -1,0 +1,4 @@
+app/src/main/res/raw/lobby_lofi.ogg and lobby_lofi_night.ogg ("Lo-fi Lobby" and its late-night version) are original
+loops synthesized from scratch by tools/lobby/make.py (no samples, no third-party audio). They are covered by this
+repository's MIT license like the code. Regenerate with: python tools/lobby/make.py OUT_DIR (all candidates; "night" for the late-night take).
+Random details such as drum noise depend on which tracks are rendered in the same run.

@@ -26,6 +26,13 @@ class CommandReceiver : BroadcastReceiver() {
                     val d = com.xplsh.onnshell.data.Speaker.chime(ctx, intent.getFloatExtra("vol", 0.3f))
                     "speaker=${d?.let { "${it.productName} id ${it.id}" } ?: "none (default output)"}"
                 }
+                "LOBBY" -> { // lobby music test: [--ez night true|false] forces a track, --ez clock true follows the clock again
+                    val l = com.xplsh.onnshell.data.Lobby
+                    if (intent.getBooleanExtra("clock", false)) l.forceNight = null
+                    else if (intent.hasExtra("night")) l.forceNight = intent.getBooleanExtra("night", false)
+                    android.os.Handler(android.os.Looper.getMainLooper()).post { if (l.front) { l.stop(); l.play(ctx) } } // only while home is in front
+                    "lobby night=${l.isNight()} force=${l.forceNight} on=${com.xplsh.onnshell.data.Prefs.lobbyMusic(ctx)}"
+                }
                 "EFFECTS" -> { // UI setting, for performance tests: --ez lite true|false, applies live
                     val lite = intent.getBooleanExtra("lite", false)
                     com.xplsh.onnshell.data.Prefs.setLite(ctx, lite)

@@ -16,14 +16,14 @@ object Speaker {
     fun forGames(ctx: Context): AudioDeviceInfo? = if (Prefs.boxSpeaker(ctx)) device(ctx) else null
 
     /** The boot chime, always on the box speaker. */
-    fun chime(ctx: Context, volume: Float = 1f): AudioDeviceInfo? {
+    fun chime(ctx: Context, volume: Float = 1f, done: () -> Unit = {}): AudioDeviceInfo? {
         val d = device(ctx)
-        MediaPlayer.create(ctx, R.raw.onnshell_startup)?.apply {
-            preferredDevice = d
-            setVolume(volume, volume)
-            setOnCompletionListener { it.release() }
-            start()
-        }
+        val p = MediaPlayer.create(ctx, R.raw.onnshell_startup)
+        if (p == null) { done(); return d }
+        p.preferredDevice = d
+        p.setVolume(volume, volume)
+        p.setOnCompletionListener { it.release(); done() }
+        p.start()
         return d
     }
 }

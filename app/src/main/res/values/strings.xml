@@ -185,6 +185,7 @@
     <string name="settings_pad_idle">Controller turns off after: %1$s</string>
     <string name="pad_idle_mins">%1$d min</string>
     <string name="pad_idle_never">never</string>
+    <string name="settings_lobby_music">Lobby music: %1$s</string>
     <string name="settings_corner_audio">Corner game sound: %1$s</string>
     <string name="corner_audio_game">game</string>
     <string name="corner_audio_tv">TV app</string>

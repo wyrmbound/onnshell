@@ -43,7 +43,17 @@ class MainActivity : ComponentActivity() {
     private fun playStartupJingle() {
         if (jinglePlayed || SystemClock.elapsedRealtime() > 90_000L) return
         jinglePlayed = true
-        runCatching { com.xplsh.onnshell.data.Speaker.chime(this) }
+        val lobby = com.xplsh.onnshell.data.Lobby
+        lobby.held = true // lobby music waits for the chime
+        runCatching { com.xplsh.onnshell.data.Speaker.chime(this) { lobby.held = false; if (resumed) lobby.play(this) } }
+            .onFailure { lobby.held = false }
+    }
+    private var resumed = false
+
+    override fun onPause() {
+        resumed = false
+        com.xplsh.onnshell.data.Lobby.pause()
+        super.onPause()
     }
 
     private val binderReceived = Shizuku.OnBinderReceivedListener {
@@ -78,6 +88,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumes++
+        resumed = true
+        com.xplsh.onnshell.data.Lobby.play(this)
         // Normally granted from ADB (scripts/shizuku-start); this is the fallback dialog on the TV
         com.xplsh.onnshell.data.ShellUser.requestIfNeeded()
         com.xplsh.onnshell.data.ShizukuBoot.ensure(this) // no-op while Shizuku runs; retries a missed "Allow" prompt

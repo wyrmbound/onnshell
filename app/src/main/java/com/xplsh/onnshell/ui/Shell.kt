@@ -180,6 +180,7 @@ fun Shell(resumes: Int) {
     var perfHud by remember { mutableStateOf(Prefs.perfHud(ctx)) }
     var cornerAudio by remember { mutableStateOf(Prefs.cornerGameAudio(ctx)) }
     var boxSpeaker by remember { mutableStateOf(Prefs.boxSpeaker(ctx)) }
+    var lobbyMusic by remember { mutableStateOf(Prefs.lobbyMusic(ctx)) }
     var padIdle by remember { mutableIntStateOf(Prefs.padIdleMins(ctx)) }
     var cornerSize by remember { mutableIntStateOf(Prefs.cornerSize(ctx)) }
     var cornerPos by remember { mutableIntStateOf(Prefs.cornerPos(ctx).coerceIn(0, 3)) }
@@ -376,6 +377,11 @@ fun Shell(resumes: Int) {
                         stringResource(R.string.settings_sound_out, stringResource(if (boxSpeaker) R.string.sound_out_box else R.string.sound_out_tv)) to {
                             boxSpeaker = !boxSpeaker; Prefs.setBoxSpeaker(ctx, boxSpeaker)
                             com.xplsh.onnshell.display.ZeroCopyActivity.current?.audio?.device = com.xplsh.onnshell.data.Speaker.forGames(ctx)
+                            com.xplsh.onnshell.data.Lobby.reroute(ctx)
+                        },
+                        stringResource(R.string.settings_lobby_music, stringResource(if (lobbyMusic) R.string.on else R.string.off)) to {
+                            lobbyMusic = !lobbyMusic; Prefs.setLobbyMusic(ctx, lobbyMusic)
+                            com.xplsh.onnshell.data.Lobby.play(ctx) // starts, or stops when switched off
                         },
                         stringResource(R.string.settings_pad_idle,
                             if (padIdle == 0) stringResource(R.string.pad_idle_never) else stringResource(R.string.pad_idle_mins, padIdle)) to {
