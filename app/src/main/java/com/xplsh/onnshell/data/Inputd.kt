@@ -88,6 +88,9 @@ object Inputd {
                 val w = line.split(" ")
                 when (w[0]) {
                     "ready" -> running = true
+                    // PS pressed: freeze the game now. Android's HOME follows about 300 ms later (it waits for a possible
+                    // double press), and until then the game kept playing, sound included (owner report, 2026-11-09).
+                    "home" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.pauseForHome() } }
                     "pad" -> {
                         pad = w.getOrNull(1)
                         padW = w.getOrNull(2)?.toIntOrNull() ?: 0

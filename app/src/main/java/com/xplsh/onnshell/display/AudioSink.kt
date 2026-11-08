@@ -18,6 +18,12 @@ class AudioSink(private val rate: Int = 32000, private val channels: Int = 2) {
     private var server: ServerSocket? = null
     /** Silences the game without stopping it (the corner window plays under another app's sound). */
     @Volatile var muted = false
+    @Volatile private var track: AudioTrack? = null
+    /** Pause (and drop what is buffered) or resume the sound now, from any thread: the game is being frozen or thawed. */
+    fun hold(on: Boolean) {
+        val t = track ?: return
+        runCatching { if (on) { t.pause(); t.flush() } else t.play() }
+    }
     private var thread: Thread? = null
 
     fun start() {
@@ -47,6 +53,7 @@ class AudioSink(private val rate: Int = 32000, private val channels: Int = 2) {
                             .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                         .setBufferSizeInBytes(min * 2).setTransferMode(AudioTrack.MODE_STREAM).build()
                     track.play()
+                    this.track = track
                     val buf = ByteArray(min)
                     var total = 0L
                     var applied = false
@@ -58,6 +65,7 @@ class AudioSink(private val rate: Int = 32000, private val channels: Int = 2) {
                             track.write(buf, 0, n); total += n  // blocking write paces the sender
                         }
                     }
+                    this.track = null
                     track.stop(); track.release()
                     Log.i(TAG, "client done, $total bytes")
                 }

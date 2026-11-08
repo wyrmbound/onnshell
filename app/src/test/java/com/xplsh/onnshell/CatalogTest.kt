@@ -96,6 +96,17 @@ class CatalogTest {
         assertEquals(listOf("ROM (N64): USA 1.0 .z64 (file rom.z64)"), e["r-port"]!!.requires)
     }
 
+    @Test fun structuredRequirementsBecomeLabelledLines() {
+        val m = Catalog.parseRequirements("""{"x":{"game":"G","version":"USA","file":"one .iso","not":"PC"}}""")
+        assertEquals(listOf("Game: G", "Version: USA", "File: one .iso", "Does not work: PC"), m["x"])
+    }
+
+    @Test fun filesWithoutDetailsSayWhatIsUnknown() {
+        val p = port("u-port", "recomp", "https://x/u.apk", desc = "Requires your copy.").replace("\"type\":\"recomp\"", "\"type\":\"recomp\",\"original_platform\":\"xbox360\"")
+        val e = Catalog.parse("""{"ports":[$p]}""", survey).single()
+        assertTrue(e.requires.single().startsWith("Your own Xbox 360 copy"))
+    }
+
     @Test fun shippedRequirementsFileParses() {
         val f = java.io.File("src/main/assets/requirements.json")
         val m = Catalog.parseRequirements(f.readText())

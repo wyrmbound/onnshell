@@ -63,13 +63,18 @@ object Catalog {
         return (0 until ports.length()).mapNotNull { i -> entry(ports.getJSONObject(i), survey, curated) }
     }
 
-    /** assets/requirements.json: port id -> lines; keys starting with "_" are comments. */
-    fun parseRequirements(json: String): Map<String, List<String>> {
-        val o = JSONObject(json)
-        return o.keys().asSequence().filterNot { it.startsWith("_") }.associate { k ->
-            val a = o.getJSONArray(k); k.lowercase() to (0 until a.length()).map { a.getString(it) }
-        }
-    }
+    /** assets/requirements.json: port id -> the lines shown in the Store (see [Requirements]). */
+    fun parseRequirements(json: String): Map<String, List<String>> = Requirements.parse(json).mapValues { it.value.lines }
+
+    private val PLATFORMS = mapOf("pc" to "PC", "dos" to "DOS", "xbox" to "original Xbox", "xbox360" to "Xbox 360", "ps1" to "PlayStation",
+        "ps2" to "PS2", "ps3" to "PS3", "ps4" to "PS4", "psp" to "PSP", "n64" to "N64", "gamecube" to "GameCube", "wii" to "Wii",
+        "wiiu" to "Wii U", "switch" to "Switch", "3ds" to "3DS", "ds" to "DS", "gb" to "Game Boy", "gbc" to "Game Boy Color",
+        "gba" to "Game Boy Advance", "snes" to "SNES", "nes" to "NES", "genesis" to "Mega Drive")
+
+    /** For a port that needs files but says nothing exact: name the platform and say plainly what is unknown. */
+    fun unknownVersion(platform: String): String =
+        "Your own ${PLATFORMS[platform.lowercase()] ?: "original"} copy of the game. This listing does not say which version or region works; check the port's page first."
+
 
     /** One line per Recompa asset: its label, then the accepted versions with their formats, then the exact file name. */
     fun requiredLines(assets: JSONArray?): List<String> = (0 until (assets?.length() ?: 0)).mapNotNull { i ->
@@ -122,7 +127,9 @@ object Catalog {
             needsFiles = p.has("assets") || p.getString("id").lowercase() in curated || Regex("requires your|your own|game files", RegexOption.IGNORE_CASE).containsMatchIn(desc),
             rating = rating, estimated = est, reports = great + playable + broken,
             wants = wants(p.optJSONArray("assets")),
-            requires = (curated[p.getString("id").lowercase()] ?: emptyList()) + requiredLines(p.optJSONArray("assets")),
+            requires = ((curated[p.getString("id").lowercase()] ?: emptyList()) + requiredLines(p.optJSONArray("assets"))).ifEmpty {
+                if (p.has("assets") || Regex("requires your|your own|game files", RegexOption.IGNORE_CASE).containsMatchIn(desc)) listOf(unknownVersion(platform)) else emptyList()
+            },
         )
     }
 

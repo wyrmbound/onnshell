@@ -91,6 +91,7 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
     /** Shrinks the running game into the corner. Only for a real game session (not a test pattern). */
     fun enterCorner() {
         if (!GameSession.external || isInPictureInPictureMode) return
+        enteringCorner = true
         val ok = runCatching {
             enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build())
         }.onFailure { Log.w(TAG, "picture-in-picture refused: $it") }.getOrDefault(false)
@@ -147,6 +148,7 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onPictureInPictureModeChanged(inCorner: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(inCorner, newConfig)
+        enteringCorner = false
         GameSession.inCorner = inCorner
         GameSession.signal(if (inCorner) "USR1" else "USR2")
         audio?.muted = inCorner && !com.xplsh.onnshell.data.Prefs.cornerGameAudio(this)
@@ -168,7 +170,11 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         }, "pip-watch").also { it.start() }
     }
     // The overlay setting is read on every return, so a change made in OnnShell settings while the game waits applies at once
-    override fun onResume() { super.onResume(); hud.show(com.xplsh.onnshell.data.Prefs.perfHud(this)) }
+    override fun onResume() {
+        super.onResume(); hud.show(com.xplsh.onnshell.data.Prefs.perfHud(this))
+        // paused by onPause but the surface stayed (something drew over the game briefly): no surfaceCreated will come to thaw it
+        if (GameSession.suspended && thread != null && view.holder.surface?.isValid == true) resumeGame()
+    }
     override fun onStop() { hud.stop(); super.onStop() }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -256,6 +262,7 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
                 Log.i(TAG, "listening on 127.0.0.1:7331")
                 ss.accept().use { s ->
                     client = s
+                    if (GameSession.external) Thread({ GameSession.findPid() }, "game-pid").start()
                     val input = DataInputStream(s.getInputStream()); val out = DataOutputStream(s.getOutputStream())
                     val hdr = ByteArray(12); val bb = ByteBuffer.wrap(hdr).order(ByteOrder.LITTLE_ENDIAN)
                     var frames = 0; val t0 = System.nanoTime()
@@ -319,8 +326,23 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         if (!isFinishing && GameSession.external) suspendGame() else stop()
     }
 
+    // Leaving the game (PS/HOME, another app) pauses it at once: onPause comes as the switch starts, while the surface
+    // used to go only after the HOME animation, and the game's buffered sound kept playing over the menu meanwhile.
+    override fun onPause() {
+        super.onPause()
+        GameSession.leftAt = android.os.SystemClock.uptimeMillis()
+        if (!isFinishing && GameSession.external && float == null && !enteringCorner && !isInPictureInPictureMode) suspendGame()
+    }
+    private var enteringCorner = false
+
+    /** The PS button was pressed (inputd says so before Android's HOME arrives): freeze a full-screen game at once. */
+    fun pauseForHome() {
+        if (!isFinishing && GameSession.external && float == null && !enteringCorner && !isInPictureInPictureMode) suspendGame()
+    }
+
     private fun suspendGame() {
         if (GameSession.suspended) return
+        audio?.hold(true) // silence now: what the track already buffered is dropped, not played out
         GameSession.signal("STOP"); GameSession.suspended = true
         Log.i(TAG, "game suspended")
     }
@@ -334,6 +356,7 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
             Log.w(TAG, "suspended game has no display session here; ending it"); GameSession.suspended = false; stop(); finish(); return
         }
         GameSession.signal("CONT"); GameSession.suspended = false
+        audio?.hold(false)
         Log.i(TAG, "game resumed")
     }
 
@@ -389,6 +412,8 @@ object GameSession {
     /** When the last game screen closed. HOME ignores the pad briefly after it, so gameplay presses still in flight
      *  (d-pad + A) cannot walk the home screen into Power > Restart > Yes; that rebooted the box several times. */
     @Volatile var endedAt = 0L
+    /** When the game screen last went to the back (uptime ms): the HOME that follows means "come home", not "resume". */
+    @Volatile var leftAt = 0L
     /** The game is in the picture-in-picture corner (its pad is grabbed). */
     @Volatile var inCorner = false
     /** Frames presented, for the performance overlay's fps. */
@@ -413,5 +438,17 @@ object GameSession {
         }
     }
 
-    fun signal(sig: String) = worker.execute { ShellUser.run("p=\$(pidof linker64); [ -n \"\$p\" ] && kill -$sig \$p") }
+    private var shell: java.io.Writer? = null
+    /** The running game's pid, found once it connects; checked by name before use, so a reused pid is never signalled. */
+    @Volatile var pid: Int = 0
+    fun findPid() { pid = ShellUser.output("pidof linker64")?.trim()?.split(" ")?.firstOrNull()?.toIntOrNull() ?: 0 }
+    /** Through one long-lived shell (started once, fed on stdin): a new process per signal cost a Shizuku round trip. */
+    fun signal(sig: String) = worker.execute {
+        val p = pid
+        val line = if (p > 0) "[ \"\$(cat /proc/$p/comm 2>/dev/null)\" = linker64 ] && kill -$sig $p || { p=\$(pidof linker64); [ -n \"\$p\" ] && kill -$sig \$p; }"
+            else "p=\$(pidof linker64); [ -n \"\$p\" ] && kill -$sig \$p"
+        if (sig == "KILL") pid = 0
+        val w = shell ?: ShellUser.start("exec sh >/dev/null 2>&1")?.outputStream?.bufferedWriter()?.also { shell = it }
+        if (w == null || runCatching { w.write(line + "\n"); w.flush() }.isFailure) { shell = null; ShellUser.run(line) }
+    }
 }

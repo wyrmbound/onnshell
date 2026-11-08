@@ -195,4 +195,13 @@
         <item>arriba a la derecha</item>
         <item>arriba a la izquierda</item>
     </string-array>
+    <string name="files_title">Archivos del juego: %1$s</string>
+    <string name="files_looking">Buscando en el almacenamiento interno y en las memorias USB…</string>
+    <string name="files_none">No se encontró nada que sirva en el almacenamiento interno ni en una memoria USB. Pon el archivo en una memoria USB o en Descargas y vuelve a buscar.</string>
+    <string name="files_retry">Buscar de nuevo</string>
+    <string name="files_pick">Elige el archivo. OnnShell lo copia donde el juego lo lee y luego inicia el juego.</string>
+    <string name="files_internal">almacenamiento interno</string>
+    <string name="files_usb">memoria USB</string>
+    <string name="files_copying">Copiando… %1$d%%</string>
+    <string name="files_failed">La copia falló: %1$s</string>
 </resources>

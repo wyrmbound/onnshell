@@ -43,6 +43,8 @@ class CommandReceiver : BroadcastReceiver() {
                     "started $id (watch: logcat -s GameInstaller)"
                 }
                 // Store UI hooks for tests, same paths as the pad: STORE_OPEN (shows the tab), STORE_FOCUS --es id, STORE_GET --es id
+                // Opens a 64-bit game like its HOME tile (game files check included): --es id I
+                "OPEN_GAME" -> com.xplsh.onnshell.data.StoreState.current?.let { it.launchRequest = intent.getStringExtra("id") ?: return fail("missing --es id"); "open requested" } ?: "no home yet"
                 "STORE_OPEN" -> com.xplsh.onnshell.data.StoreState.current?.let { it.openRequest = true; "opening" } ?: "no store yet (is HOME up?)"
                 "STORE_FOCUS" -> com.xplsh.onnshell.data.StoreState.current?.let { it.focusRequest = intent.getStringExtra("id") ?: return fail("missing --es id"); "focus requested" } ?: "no store yet"
                 "STORE_GET" -> {

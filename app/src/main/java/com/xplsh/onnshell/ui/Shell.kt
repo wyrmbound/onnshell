@@ -138,6 +138,8 @@ sealed interface Screen {
     data object InputDebug : Screen
     data class Info(val title: String, val lines: suspend () -> List<String>) : Screen
     data class Details(val tile: Tile) : Screen
+    /** A 64-bit game whose files are not where it reads them yet: find them on the drives, copy, then start. */
+    data class GetFiles(val label: String, val id: String, val need: com.xplsh.onnshell.data.Requirements.Need, val attempt: Int = 0) : Screen
     data class Options(val tile: Tile) : Screen
     // opened: presses (or touchpad-pointer clicks) already in flight when the panel appears must not confirm it
     // back: where Cancel and B go (the Store's Get warning returns to the Store, not Home)
@@ -252,23 +254,29 @@ fun Shell(resumes: Int) {
         runCatching { ctx.startActivity(Intent(action, data).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             .onFailure { ctx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
+    /** A 64-bit game: the game screen starts it (see ZeroCopyActivity "game"). */
+    fun startNative(id: String) {
+        ctx.startActivity(Intent(ctx, com.xplsh.onnshell.display.ZeroCopyActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra("launch", false).putExtra("fresh", true).putExtra("game", id))
+    }
+    /** Starts a 64-bit game, or first asks for its files when they are not where the game reads them (requirements.json "pick"). */
+    fun openNative(id: String, label: String) {
+        val need = com.xplsh.onnshell.data.Requirements.forId(ctx, id)
+        val pick = need?.pick
+        if (pick != null && !com.xplsh.onnshell.data.Requirements.present(pick)) screen = Screen.GetFiles(label, id, need)
+        else startNative(id)
+    }
+    LaunchedEffect(store.launchRequest) { store.launchRequest?.let { id -> store.launchRequest = null; openNative(id, store.entry(id)?.name ?: id) } }
     fun launch(a: AppEntry) {
-        if (a.pkg.startsWith(Apps.NATIVE)) { // 64-bit game: the game screen starts it (see ZeroCopyActivity "game")
-            ctx.startActivity(Intent(ctx, com.xplsh.onnshell.display.ZeroCopyActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .putExtra("launch", false).putExtra("fresh", true).putExtra("game", a.pkg.removePrefix(Apps.NATIVE)))
-            return
-        }
+        if (a.pkg.startsWith(Apps.NATIVE)) { openNative(a.pkg.removePrefix(Apps.NATIVE), a.label); return }
         if (!Apps.launch(ctx, a.pkg)) nav.hint = ctx.getString(R.string.launch_failed, a.label)
         else Prefs.setLastApp(ctx, a.pkg)
     }
     /** An installed store entry: 64-bit ports open through the game screen, 32-bit builds like any app. */
     fun openEntry(e: Entry) {
-        if (java.io.File(Apps.nativeGamesDir(ctx), "${e.id}.apk").exists()) {
-            ctx.startActivity(Intent(ctx, com.xplsh.onnshell.display.ZeroCopyActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .putExtra("launch", false).putExtra("fresh", true).putExtra("game", e.id))
-        } else e.pkg?.let { if (!Apps.launch(ctx, it)) nav.hint = ctx.getString(R.string.launch_failed, e.name) }
+        if (java.io.File(Apps.nativeGamesDir(ctx), "${e.id}.apk").exists()) openNative(e.id, e.name)
+        else e.pkg?.let { if (!Apps.launch(ctx, it)) nav.hint = ctx.getString(R.string.launch_failed, e.name) }
     }
     /** Get: Medium and lower ratings, and ports that need one exact game version, get a warning first (CONSOLE_MODE sections 10 and 14). */
     fun getEntry(e: Entry) {
@@ -391,6 +399,51 @@ fun Shell(resumes: Int) {
                     Line(Inputd.latency.ifEmpty { stringResource(R.string.input_no_latency) })
                     if (Inputd.error.isNotEmpty()) Line(stringResource(R.string.input_error, Inputd.error), Ui.TEXT2)
                     Line(stringResource(R.string.input_help), Ui.TEXT2)
+                }
+
+                is Screen.GetFiles -> Panel(stringResource(R.string.files_title, s.label), accent) {
+                    val pick = s.need.pick!!
+                    s.need.lines.filterNot { it.startsWith("Fingerprint:") }.forEach { Line(it, Ui.TEXT2) } // the hash is for the Store; here it only pushed the rest off screen
+                    Spacer(Modifier.size(16.dp))
+                    var copying by remember(s) { mutableStateOf<Float?>(null) }
+                    var failed by remember(s) { mutableStateOf<String?>(null) }
+                    val found by produceState<List<java.io.File>?>(null, s) {
+                        value = withContext(Dispatchers.IO) {
+                            com.xplsh.onnshell.data.GameFiles.grantStorage(ctx.packageName)
+                            com.xplsh.onnshell.data.Requirements.candidates(pick, com.xplsh.onnshell.data.GameFiles.walk(com.xplsh.onnshell.data.GameFiles.roots()))
+                        }
+                    }
+                    val list = found
+                    when {
+                        copying != null -> Line(stringResource(R.string.files_copying, ((copying ?: 0f) * 100).toInt()))
+                        list == null -> Line(stringResource(R.string.files_looking))
+                        list.isEmpty() -> {
+                            Line(stringResource(R.string.files_none))
+                            Choices(accent, listOf(stringResource(R.string.files_retry) to { screen = s.copy(attempt = s.attempt + 1) },
+                                stringResource(R.string.cancel) to { screen = Screen.Home }))
+                        }
+                        else -> {
+                            Line(stringResource(R.string.files_pick))
+                            val internal = stringResource(R.string.files_internal); val usb = stringResource(R.string.files_usb)
+                            Choices(accent, list.take(12).map { f ->
+                                val where = if (f.path.startsWith("/storage/emulated/0")) internal else usb
+                                val size = if (f.isFile) " · %d MB".format(f.length() / 1048576) else ""
+                                val pickIt: () -> Unit = {
+                                    copying = 0f; failed = null
+                                    scope.launch {
+                                        var shown = -1
+                                        val r = withContext(Dispatchers.IO) {
+                                            runCatching { com.xplsh.onnshell.data.Requirements.install(pick, f) { p -> val pct = (p * 100).toInt(); if (pct != shown) { shown = pct; copying = p } } }
+                                        }
+                                        if (r.isSuccess) { screen = Screen.Home; startNative(s.id) }
+                                        else { copying = null; failed = r.exceptionOrNull()?.message ?: "?" }
+                                    }
+                                }
+                                "${f.name}$size · $where" to pickIt
+                            } + (stringResource(R.string.cancel) to { screen = Screen.Home }))
+                        }
+                    }
+                    failed?.let { Line(stringResource(R.string.files_failed, it), Ui.TEXT2) }
                 }
 
                 is Screen.Info -> Panel(s.title, accent) {

@@ -68,7 +68,10 @@ class MainActivity : ComponentActivity() {
         // Stopped can: behind another app we were stopped (came home -> ARRIVE); already in front we were
         // only paused (PS at home -> LAST, back to the last app or the suspended game).
         if (intent.hasCategory(android.content.Intent.CATEGORY_HOME)) {
-            val ok = Pad.cmds.tryEmit(if (started) Cmd.LAST else Cmd.ARRIVE)
+            // "started" alone misreads PS in a game: Android starts HOME just before this call, so it looked like PS at
+            // home and resumed the game it had just frozen. The game screen notes when it was left; that HOME is an arrival.
+            val fromGame = SystemClock.uptimeMillis() - com.xplsh.onnshell.display.GameSession.leftAt < 1000
+            val ok = Pad.cmds.tryEmit(if (started && !fromGame) Cmd.LAST else Cmd.ARRIVE)
             android.util.Log.i("M4", "home intent: started=$started suspended=${com.xplsh.onnshell.display.GameSession.suspended} emitted=$ok")
         }
     }

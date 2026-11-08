@@ -195,4 +195,13 @@
         <item>top right</item>
         <item>top left</item>
     </string-array>
+    <string name="files_title">Game files: %1$s</string>
+    <string name="files_looking">Looking on internal storage and USB drives…</string>
+    <string name="files_none">Nothing that fits was found on internal storage or a USB drive. Put the file on a USB stick or in Downloads, then look again.</string>
+    <string name="files_retry">Look again</string>
+    <string name="files_pick">Pick the file to use. OnnShell copies it to where the game reads it, then starts the game.</string>
+    <string name="files_internal">internal storage</string>
+    <string name="files_usb">USB drive</string>
+    <string name="files_copying">Copying… %1$d%%</string>
+    <string name="files_failed">The copy failed: %1$s</string>
 </resources>

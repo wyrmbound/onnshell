@@ -87,6 +87,11 @@ fun Store(state: StoreState, accent: Accent, lite: Boolean, onGet: (Entry) -> Un
     val theme = LocalTheme.current
     var focused by remember { mutableStateOf<Entry?>(null) }
     LaunchedEffect(Unit) { if (state.entries.isEmpty()) state.refresh() }
+    // A search is for now: more than 10 s away from the Store and it starts clean (owner ask)
+    LaunchedEffect(Unit) { if (state.leftAt > 0 && android.os.SystemClock.uptimeMillis() - state.leftAt > 10_000) state.query = "" }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { state.leftAt = android.os.SystemClock.uptimeMillis() } }
+    // The panel follows the search: when the focused game is filtered out, show the first match instead of a stale one
+    LaunchedEffect(state.query, state.filter, state.entries.size) { if (focused == null || state.visible.none { it.id == focused?.id }) focused = state.visible.firstOrNull() }
     // Start on the last game, else the first (else nothing is focused, the panel is empty and the first pad press has no anchor)
     LaunchedEffect(state.entries.isEmpty()) {
         if (state.focusRequest == null) state.focusRequest = state.last?.takeIf { id -> state.visible.any { it.id == id } } ?: state.visible.firstOrNull()?.id
@@ -248,7 +253,8 @@ private fun Detail(e: Entry?, state: StoreState, accent: Accent, lite: Boolean) 
             if (entry.requires.isNotEmpty()) {
                 Text(stringResource(R.string.store_needs), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.text2, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
                 // capped so the Get pill stays on screen; the Get warning shows every line in full
-                Text(entry.requires.joinToString(" "), fontSize = 12.sp, lineHeight = 16.sp, color = theme.text2, maxLines = 6, overflow = TextOverflow.Ellipsis)
+                // one line each, label in bold; the long fingerprint stays for the Get warning, which shows everything
+                Text(needsText(entry.requires.filterNot { it.startsWith("Fingerprint:") }), fontSize = 12.sp, lineHeight = 16.sp, color = theme.text2, maxLines = 7, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.weight(1f))
             val installed = state.installed[entry.id] == true
@@ -348,6 +354,9 @@ private fun SearchPill(state: StoreState, accent: Accent, lite: Boolean, modifie
         return
     }
     val req = remember { androidx.compose.ui.focus.FocusRequester() }
+    // B while typing closes the keyboard and stays in the Store; the Shell's own BACK (to HOME) only when not typing.
+    // This handler is composed inside the Shell's, so it wins while the field is open.
+    androidx.activity.compose.BackHandler(enabled = true) { editing = false }
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     var hadFocus by remember { mutableStateOf(false) }
     androidx.compose.foundation.text.BasicTextField(
@@ -368,4 +377,16 @@ private fun SearchPill(state: StoreState, accent: Accent, lite: Boolean, modifie
         },
     )
     LaunchedEffect(Unit) { runCatching { req.requestFocus() } }
+}
+
+/** Requirement lines as "Label: value" with the label in bold, one per line. */
+private fun needsText(lines: List<String>) = androidx.compose.ui.text.buildAnnotatedString {
+    lines.forEachIndexed { i, l ->
+        if (i > 0) append("\n")
+        val cut = l.indexOf(": ")
+        if (cut in 1..18) {
+            pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold)); append(l.substring(0, cut + 1)); pop()
+            append(l.substring(cut + 1))
+        } else append(l)
+    }
 }

@@ -27,6 +27,8 @@ class StoreState(
     var filter by mutableStateOf(Filter.ALL)
     /** Store search: matches the name or id, ignoring case, spaces and punctuation. */
     var query by mutableStateOf("")
+    /** When the Store tab was last left (uptime ms), so an old search can be dropped on return. */
+    var leftAt = 0L
     /** Id being installed, or null. */
     var busy by mutableStateOf<String?>(null); private set
     var progress by mutableStateOf(0f); private set
@@ -37,6 +39,8 @@ class StoreState(
     /** Test hooks (CommandReceiver STORE_OPEN / STORE_FOCUS): the shell opens the Store, the Store focuses this id. */
     var openRequest by mutableStateOf(false)
     var focusRequest by mutableStateOf<String?>(null)
+    /** Test hook (CommandReceiver OPEN_GAME): HOME opens this 64-bit game through the same path as its tile. */
+    var launchRequest by mutableStateOf<String?>(null)
     /** Last focused id, so coming back from a warning or a game lands on the same tile. */
     var last: String? = null
 

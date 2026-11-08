@@ -1,18 +1,31 @@
 {
-  "_about": "Exact game version each port needs, by Recompa port id. Only versions checked on this box or stated by the port's own README. Shown in the Store's detail panel and on the Get warning, next to what Recompa's assets[] declares.",
-  "mostwanted": [
-    "Original Xbox, USA, Black Edition: the disc image (.iso). Checked: default.xbe SHA-1 f636a16af04171089f879a4bed646e185c734233.",
-    "Put the .iso in /sdcard/MostWanted. The PC version does not work."
-  ],
-  "nfsmw-android": [
-    "Xbox 360 game files: the extracted default.xex plus the NFS and Movies folders.",
-    "The listing says PC, but this build is the Xbox 360 recompilation. PC installers and PC files do not work.",
-    "Its Java launcher, which normally copies the files into place, does not run here: put them in the nsfmw-androidevolved folder on the box's storage yourself."
-  ],
-  "gen1recomp": [
-    "A Game Boy ROM: Pokemon Red, Blue or Yellow (US English). FireRed, LeafGreen and Emerald (GBA) are accepted too, matched by SHA-1."
-  ],
-  "tenkaichi3decompandroid": [
-    "PS2 disc image, USA release SLUS-21678 (.iso). Other regions do not work."
-  ]
+  "_about": "What each port needs from you, by Recompa port id. Only facts checked on this box or stated by the port's own README. Fields: game, version, file, check, goes, not, note; 'pick' tells OnnShell where the game reads its files, so it can ask for them before the first launch. Shown in the Store and on the Get warning.",
+  "mostwanted": {
+    "game": "Need for Speed: Most Wanted (2005)",
+    "version": "Original Xbox, USA, Black Edition",
+    "file": "The disc image: one .iso file, about 3.1 GB",
+    "check": "default.xbe inside it has SHA-1 f636a16af04171089f879a4bed646e185c734233",
+    "goes": "/sdcard/MostWanted. OnnShell asks for the file and copies it there the first time you start the game.",
+    "not": "The PC version, the Xbox 360 version, other regions",
+    "pick": { "type": "file", "ext": ["iso"], "dir": "/storage/emulated/0/MostWanted" }
+  },
+  "nfsmw-android": {
+    "game": "Need for Speed: Most Wanted (2005)",
+    "version": "Xbox 360",
+    "file": "The extracted game folder: default.xex plus the NFS and Movies folders",
+    "goes": "The nsfmw-androidevolved folder on the box's storage. The port's Java launcher would normally copy them there; it does not run on this box.",
+    "not": "PC installers or PC files. The listing says PC, but this build is the Xbox 360 recompilation."
+  },
+  "gen1recomp": {
+    "game": "Pokemon Red, Blue or Yellow; FireRed, LeafGreen or Emerald also work",
+    "version": "US English cartridge",
+    "file": "The cartridge ROM: .gb or .gbc for Red, Blue and Yellow, .gba for FireRed, LeafGreen and Emerald. Matched by SHA-1.",
+    "goes": "The game asks for it on first start, through OnnShell's file picker."
+  },
+  "tenkaichi3decompandroid": {
+    "game": "Dragon Ball Z: Budokai Tenkaichi 3",
+    "version": "PS2, USA release SLUS-21678",
+    "file": "The disc image (.iso)",
+    "not": "Other regions (PAL, Japan)"
+  }
 }
