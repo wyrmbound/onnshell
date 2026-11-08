@@ -170,6 +170,8 @@
     <string name="store_new">nuevo</string>
     <string name="store_updated">actualizado</string>
     <string name="store_from_github">enlace de su proyecto en GitHub</string>
+    <string name="store_queued">En cola</string>
+    <string name="store_queued_cancel">En cola: A lo quita</string>
     <string name="store_needs_files">necesita tus archivos del juego</string>
     <string name="store_warn_medium">Valorado %1$s en dispositivos como este. Puede ir a tirones o no arrancar. ¿Obtener igualmente?</string>
     <string name="store_offline">La tienda necesita red</string>

@@ -170,6 +170,8 @@
     <string name="store_new">new</string>
     <string name="store_updated">updated</string>
     <string name="store_from_github">link from its GitHub project</string>
+    <string name="store_queued">Queued</string>
+    <string name="store_queued_cancel">Queued: A removes it</string>
     <string name="store_needs_files">needs your game files</string>
     <string name="store_warn_medium">Rated %1$s on devices like this. It may stutter or not start. Get it anyway?</string>
     <string name="store_offline">Store needs the network</string>

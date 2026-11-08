@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -175,7 +176,8 @@ private fun StoreTile(e: Entry, index: Int, state: StoreState, accent: Accent, l
     var shown by remember { mutableStateOf(lite) }
     LaunchedEffect(Unit) { if (!shown) { delay((index % 10) * 20L); shown = true } }
     val appear by animateFloatAsState(if (shown) 1f else 0f, tween(200), label = "appear")
-    val act = { if (installed) onOpen(e) else if (!busy) onGet(e) }
+    val queued = e.id in state.queue
+    val act = { if (installed) onOpen(e) else if (queued) state.dequeue(e.id) else if (!busy) onGet(e) }
     Box(contentAlignment = Alignment.Center) {
     if (isFocused && !lite && theme.focus == Focus.GLOW) Box(Modifier.size(size + 40.dp).background(Brush.radialGradient(listOf(accent.main.copy(alpha = 0.55f), Color.Transparent))))
     Surface(
@@ -204,6 +206,7 @@ private fun StoreTile(e: Entry, index: Int, state: StoreState, accent: Accent, l
                 Text(e.name, fontFamily = theme.display, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (theme.grid != Grid.BUBBLES) Row(Modifier.padding(top = 4.dp)) {
                     if (busy) Text(stringResource(R.string.store_installing), fontSize = 11.sp, color = accent.main)
+                    else if (queued) RatingChip(stringResource(R.string.store_queued), accent.main)
                     else if (installed) RatingChip(stringResource(R.string.store_installed), accent.main)
                     else RatingChip(e.rating.label(e.estimated), e.rating.color())
                 }
@@ -246,24 +249,28 @@ private fun Detail(e: Entry?, state: StoreState, accent: Accent, lite: Boolean) 
     Crossfade(e, animationSpec = tween(if (lite) 0 else 250), label = "detail") { entry ->
         Column(Modifier.padding(start = 16.dp, bottom = 80.dp).width(270.dp).fillMaxHeight().background(theme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(18.dp)) {
             if (entry == null) return@Crossfade
-            Text(entry.name, fontFamily = theme.display, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(meta(entry, state), fontSize = 13.sp, color = theme.text3, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
-            Text(entry.description.ifEmpty { stringResource(R.string.store_no_description) }, fontSize = 14.sp, lineHeight = 20.sp, color = theme.text2, maxLines = if (entry.requires.isEmpty()) 8 else 3, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.store_rating), fontSize = 13.sp, color = theme.text2, modifier = Modifier.padding(end = 8.dp))
-                RatingChip(entry.rating.label(entry.estimated), entry.rating.color())
+            // The text takes the room that is left and is cut there; the Get pill below always keeps its full height
+            // (a long "Needs" list used to squeeze it flat).
+            Column(Modifier.weight(1f).clipToBounds()) {
+                Text(entry.name, fontFamily = theme.display, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(meta(entry, state), fontSize = 13.sp, color = theme.text3, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+                Text(entry.description.ifEmpty { stringResource(R.string.store_no_description) }, fontSize = 14.sp, lineHeight = 20.sp, color = theme.text2, maxLines = if (entry.requires.isEmpty()) 8 else 3, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.store_rating), fontSize = 13.sp, color = theme.text2, modifier = Modifier.padding(end = 8.dp))
+                    RatingChip(entry.rating.label(entry.estimated), entry.rating.color())
+                }
+                if (entry.reports > 0) Text(stringResource(R.string.store_reports, entry.reports), fontSize = 12.sp, color = theme.text3, modifier = Modifier.padding(top = 4.dp))
+                if (entry.requires.isNotEmpty()) {
+                    Text(stringResource(R.string.store_needs), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.text2, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
+                    // capped at 5 lines so the Get pill stays whole (7 squeezed it under a two-line meta); the Get warning shows every line in full
+                    // one line each, label in bold; the long fingerprint stays for the Get warning, which shows everything
+                    Text(needsText(entry.requires.filterNot { it.startsWith("Fingerprint:") }), fontSize = 12.sp, lineHeight = 16.sp, color = theme.text2, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                }
             }
-            if (entry.reports > 0) Text(stringResource(R.string.store_reports, entry.reports), fontSize = 12.sp, color = theme.text3, modifier = Modifier.padding(top = 4.dp))
-            if (entry.requires.isNotEmpty()) {
-                Text(stringResource(R.string.store_needs), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.text2, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
-                // capped at 5 lines so the Get pill stays whole (7 squeezed it under a two-line meta); the Get warning shows every line in full
-                // one line each, label in bold; the long fingerprint stays for the Get warning, which shows everything
-                Text(needsText(entry.requires.filterNot { it.startsWith("Fingerprint:") }), fontSize = 12.sp, lineHeight = 16.sp, color = theme.text2, maxLines = 5, overflow = TextOverflow.Ellipsis)
-            }
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(8.dp))
             val installed = state.installed[entry.id] == true
-            val label = when { state.busy == entry.id -> stringResource(R.string.store_installing); installed -> stringResource(R.string.store_open); else -> stringResource(R.string.store_get) }
+            val label = when { state.busy == entry.id -> stringResource(R.string.store_installing); entry.id in state.queue -> stringResource(R.string.store_queued_cancel); installed -> stringResource(R.string.store_open); else -> stringResource(R.string.store_get) }
             ActionPill("A", label, accent.brush) { }
             if (!installed && entry.rating.ordinal >= Rating.MEDIUM.ordinal) Text(
                 stringResource(R.string.store_warn_medium, entry.rating.label(false)), fontSize = 12.sp, lineHeight = 17.sp, color = Rating.MEDIUM.color(),
@@ -319,7 +326,8 @@ private fun Ledger(state: StoreState, accent: Accent, lite: Boolean, onGet: (Ent
             val installed = state.installed[e.id] == true
             val busy = state.busy == e.id
             var isFocused by remember { mutableStateOf(false) }
-            val act = { if (installed) onOpen(e) else if (!busy) onGet(e) }
+            val queued = e.id in state.queue
+            val act = { if (installed) onOpen(e) else if (queued) state.dequeue(e.id) else if (!busy) onGet(e) }
             Surface(
                 onClick = act,
                 modifier = Modifier.fillMaxWidth().focusRequester(req).onFocusChanged { isFocused = it.isFocused }.pointerClick(act),
@@ -339,7 +347,7 @@ private fun Ledger(state: StoreState, accent: Accent, lite: Boolean, onGet: (Ent
                         }
                         Box(Modifier.width(130.dp)) { RatingChip(e.rating.label(e.estimated), e.rating.color()) }
                         Text(mb(e.size), fontSize = 15.sp, modifier = Modifier.width(80.dp))
-                        val label = when { busy -> stringResource(R.string.store_installing); installed -> stringResource(R.string.store_open); else -> stringResource(R.string.store_get) }
+                        val label = when { busy -> stringResource(R.string.store_installing); queued -> stringResource(R.string.store_queued_cancel); installed -> stringResource(R.string.store_open); else -> stringResource(R.string.store_get) }
                         Text(
                             label.uppercase(), fontSize = 13.sp, fontWeight = FontWeight.Medium, letterSpacing = 2.sp,
                             color = if (isFocused) theme.bg else theme.text,

@@ -21,14 +21,16 @@ class StoreStateTest {
     )
     private val scope = CoroutineScope(Dispatchers.Unconfined)
 
-    @Test fun installIsIgnoredWhileBusy() = runBlocking {
+    // A Get during another install used to be ignored; it now waits in line (data/StoreQueueTest covers the line itself)
+    @Test fun installWaitsWhileBusy() = runBlocking {
         val gate = CompletableDeferred<Unit>()
         val s = StoreState(scope, { emptyList() }, { false }, { _, _ -> gate.await(); Result.success(Unit) })
         assertTrue(s.install(entry("a")))
-        assertFalse(s.install(entry("b")))
-        assertEquals("a", s.busy)
+        assertTrue(s.install(entry("b")))
+        assertEquals("a", s.busy); assertEquals(listOf("b"), s.queue.toList())
         gate.complete(Unit)
-        assertNull(s.busy); assertEquals(true, s.installed["a"]); assertEquals(1, s.installs)
+        // "b" is not in this state's (empty) list any more, so the line drops it instead of installing something unlisted
+        assertNull(s.busy); assertTrue(s.queue.isEmpty()); assertEquals(true, s.installed["a"]); assertEquals(1, s.installs)
     }
 
     @Test fun visibleSortsInstalledThenRating() {

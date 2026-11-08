@@ -3,6 +3,7 @@ package com.xplsh.onnshell.data
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -94,16 +95,31 @@ class StoreState(
         }
     }
 
-    /** Starts installing [e]; false (and nothing happens) while another install runs. */
+    /** Starts installing [e], or puts it in line behind the install that is running. */
     fun install(e: Entry): Boolean {
-        if (busy != null) return false
+        if (busy == e.id || e.id in queue) return true
+        if (busy != null) { queue += e.id; return true } // owner ask: a Get during another install waits its turn
+        start(e)
+        return true
+    }
+
+    /** Ids waiting for the running install to finish, in the order they were asked for. */
+    val queue = mutableStateListOf<String>()
+    /** Takes a waiting game out of the line again. */
+    fun dequeue(id: String) { queue.remove(id) }
+
+    private fun start(e: Entry) {
         busy = e.id; progress = 0f; progressText = ""
         scope.launch {
             val r = installer(e) { p, t -> progress = p; progressText = t }
             if (r.isSuccess) { installed[e.id] = true; installs++ } else error = r.exceptionOrNull()?.message ?: "install failed"
             busy = null
+            // the next one in line that is still listed and not installed meanwhile; a failed install does not stop the line
+            while (queue.isNotEmpty()) {
+                val n = entry(queue.removeAt(0))
+                if (n != null && installed[n.id] != true) { start(n); break }
+            }
         }
-        return true
     }
 
     /** After the search and the filter; installed first, then by rating, then by name. */
