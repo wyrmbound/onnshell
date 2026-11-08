@@ -2,7 +2,8 @@
 # Phase 1: build, install and make OnnShell the Device Owner, then apply its policies.
 # Asks before "dpm set-device-owner". Safe to run again (skips what is already done).
 . "$(dirname "$0")/lib.sh"
-APK=app/build/outputs/apk/fast/app-fast.apk
+# APK=path/to/onnshell.apk skips the build (for example the APK from the GitHub release)
+APK=${APK:-}
 
 owners=$(a shell dpm list-owners 2>&1)
 if ! echo "$owners" | grep -q "$PKG"; then
@@ -11,7 +12,8 @@ if ! echo "$owners" | grep -q "$PKG"; then
   echo "$owners" | grep -q "no owners" || { echo "Another owner is set: $owners. Stopping."; exit 1; }
 fi
 
-./gradlew -q assembleFast </dev/null
+if [ -z "$APK" ]; then APK=app/build/outputs/apk/fast/app-fast.apk; ./gradlew -q assembleFast </dev/null; fi
+[ -f "$APK" ] || { echo "APK not found: $APK"; exit 1; }
 a install -r -t "$APK"
 a shell sync # a power cut right after an update once left the package half written
 

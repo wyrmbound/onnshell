@@ -1,7 +1,8 @@
 # Phase 1: build, install and make OnnShell the Device Owner, then apply its policies.
 # Asks before "dpm set-device-owner". Safe to run again (skips what is already done).
+# -Apk path\to\onnshell.apk skips the build (for example the APK from the GitHub release).
+param([string]$Apk = '')
 . "$PSScriptRoot\lib.ps1"
-$apk = 'app/build/outputs/apk/fast/app-fast.apk'
 
 $owners = (Box shell "dpm list-owners 2>&1") -join ' '
 if ($owners -notmatch [regex]::Escape($Pkg)) {
@@ -10,9 +11,13 @@ if ($owners -notmatch [regex]::Escape($Pkg)) {
     if ($owners -notmatch 'no owners') { Write-Host "Another owner is set: $owners. Stopping."; exit 1 }
 }
 
-$null | .\gradlew.bat -q assembleFast
-if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-Box install -r -t $apk
+if (-not $Apk) {
+    $Apk = 'app/build/outputs/apk/fast/app-fast.apk'
+    $null | .\gradlew.bat -q assembleFast
+    if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+}
+if (-not (Test-Path $Apk)) { throw "APK not found: $Apk" }
+Box install -r -t $Apk
 Box shell sync # a power cut right after an update once left the package half written
 
 if ($owners -match [regex]::Escape($Pkg)) {
