@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- ADB status screen: network addresses and a local check of port 5555 -->
+    <!-- the game's corner window over other apps; OnnShell grants it to itself through appops as the shell user -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Device owner turns Wi-Fi back on at startup (adb, Shizuku's self-start and the store all need it) -->

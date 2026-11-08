@@ -182,4 +182,17 @@
     <string name="settings_corner_audio">Sonido del juego en la esquina: %1$s</string>
     <string name="corner_audio_game">juego</string>
     <string name="corner_audio_tv">app de TV</string>
+    <string name="settings_corner_size">Tamaño de la esquina: %1$s</string>
+    <string-array name="corner_sizes">
+        <item>Pequeña</item>
+        <item>Mediana</item>
+        <item>Grande</item>
+    </string-array>
+    <string name="settings_corner_pos">Posición de la esquina: %1$s</string>
+    <string-array name="corner_positions">
+        <item>abajo a la derecha</item>
+        <item>abajo a la izquierda</item>
+        <item>arriba a la derecha</item>
+        <item>arriba a la izquierda</item>
+    </string-array>
 </resources>

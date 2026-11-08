@@ -177,6 +177,8 @@ fun Shell(resumes: Int) {
     var themeId by remember { mutableStateOf(Prefs.themeId(ctx)) }
     var perfHud by remember { mutableStateOf(Prefs.perfHud(ctx)) }
     var cornerAudio by remember { mutableStateOf(Prefs.cornerGameAudio(ctx)) }
+    var cornerSize by remember { mutableIntStateOf(Prefs.cornerSize(ctx)) }
+    var cornerPos by remember { mutableIntStateOf(Prefs.cornerPos(ctx).coerceIn(0, 3)) }
     LaunchedEffect(resumes) { themeId = Prefs.themeId(ctx) } // the THEME command and a relaunch change it without recreating us
     val theme = Themes.byId(themeId)
     val lite = Pad.lite
@@ -350,6 +352,13 @@ fun Shell(resumes: Int) {
                         stringResource(R.string.settings_effects, stringResource(if (lite) R.string.effects_lite else R.string.effects_full)) to {
                             Pad.lite = !lite
                             Prefs.setLite(ctx, Pad.lite)
+                        },
+                        stringResource(R.string.settings_corner_size, stringArrayResource(R.array.corner_sizes)[com.xplsh.onnshell.display.FloatWindow.SIZES.indexOf(cornerSize).coerceAtLeast(0)]) to {
+                            val all = com.xplsh.onnshell.display.FloatWindow.SIZES
+                            cornerSize = all[(all.indexOf(cornerSize) + 1) % all.size]; Prefs.setCornerSize(ctx, cornerSize)
+                        },
+                        stringResource(R.string.settings_corner_pos, stringArrayResource(R.array.corner_positions)[cornerPos]) to {
+                            cornerPos = (cornerPos + 1) % 4; Prefs.setCornerPos(ctx, cornerPos)
                         },
                         stringResource(R.string.settings_corner_audio, stringResource(if (cornerAudio) R.string.corner_audio_game else R.string.corner_audio_tv)) to {
                             cornerAudio = !cornerAudio; Prefs.setCornerGameAudio(ctx, cornerAudio)

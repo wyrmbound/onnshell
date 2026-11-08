@@ -67,7 +67,7 @@ class CommandReceiver : BroadcastReceiver() {
                 // In-game performance overlay: --ez on true|false. The game screen reads it when it comes to the front.
                 "HUD" -> { val on = intent.getBooleanExtra("on", true); com.xplsh.onnshell.data.Prefs.setPerfHud(ctx, on); "hud=$on" }
                 // Picture in picture, for tests: CORNER moves the running game to the corner, CORNER_EXIT brings it back
-                "CORNER" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.enterCorner() }; "corner requested" } ?: "no game screen"
+                "CORNER" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.startFloat() }; "corner requested" } ?: "no game screen"
                 "CORNER_EXIT" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.leaveCorner() }; "full screen requested" } ?: "no game screen"
                 "APPLY" -> Policy.apply(ctx)
                 "UNPROVISION" -> Policy.unprovision(ctx)

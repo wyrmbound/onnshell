@@ -97,6 +97,46 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         Log.i(TAG, "corner: $ok")
     }
 
+    // The game's own corner window (FloatWindow): bigger than Android TV's picture-in-picture and placed where the
+    // owner chose. Frames go to its surface while this activity waits in the back; Android's PiP is the fallback.
+    private var float: FloatWindow? = null
+    @Volatile private var floatHolder: SurfaceHolder? = null
+
+    /** Hold Share, or the adb CORNER hook: the game keeps playing in its own corner window over the next app. */
+    fun startFloat() {
+        if (!GameSession.external || float != null || isInPictureInPictureMode) return
+        if (!android.provider.Settings.canDrawOverlays(this)) {
+            // OnnShell may grant itself "display over other apps" as the shell user; without it, Android's own corner window
+            Thread({
+                ShellUser.run("appops set $packageName SYSTEM_ALERT_WINDOW allow")
+                runOnUiThread { if (android.provider.Settings.canDrawOverlays(this)) startFloat() else enterCorner() }
+            }, "float-grant").start()
+            return
+        }
+        val prefs = com.xplsh.onnshell.data.Prefs
+        val win = FloatWindow(this, prefs.cornerSize(this), prefs.cornerPos(this))
+        runCatching { win.show() }.onFailure { Log.w(TAG, "corner window refused: $it"); enterCorner(); return }
+        float = win; floatHolder = win.holder
+        GameSession.inCorner = true
+        GameSession.signal("USR1")
+        audio?.muted = !prefs.cornerGameAudio(this)
+        hud.show(false)
+        watchCorner()
+        moveTaskToBack(true) // HOME comes up behind the window; open Netflix or anything from there
+        Log.i(TAG, "corner window ${prefs.cornerSize(this)}% at ${prefs.cornerPos(this)}, game audio ${audio?.muted == false}")
+    }
+
+    private fun endFloat() {
+        val win = float ?: return
+        float = null; floatHolder = null
+        win.hide()
+        GameSession.inCorner = false
+        GameSession.signal("USR2")
+        audio?.muted = false
+        pipWatch?.interrupt(); pipWatch = null
+        Log.i(TAG, "corner window closed")
+    }
+
     /** Back to full screen: bringing this singleTask activity to the front takes it out of the corner. */
     fun leaveCorner() {
         startActivity(android.content.Intent(this, ZeroCopyActivity::class.java)
@@ -130,13 +170,16 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
     override fun onResume() { super.onResume(); hud.show(com.xplsh.onnshell.data.Prefs.perfHud(this)) }
     override fun onStop() { hud.stop(); super.onStop() }
 
-    override fun surfaceCreated(holder: SurfaceHolder) { if (GameSession.suspended) resumeGame() else startSession() }
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        endFloat()
+        if (GameSession.suspended) resumeGame() else if (thread == null) startSession()
+    }
 
     // A second `am start` reaches the existing instance here (launchMode singleTask), so the old session's sockets
     // and bridge are torn down before the new one binds; stacking a second instance made 7331/7332 EADDRINUSE.
     override fun onNewIntent(intent: android.content.Intent) {
         // Back from the corner window (PS, or the adb hook): the session keeps running, only the window grows
-        if (intent.getBooleanExtra("expand", false)) return
+        if (intent.getBooleanExtra("expand", false)) { endFloat(); return }
         super.onNewIntent(intent); setIntent(intent)
         // Coming back to a suspended game: surfaceCreated resumes it. Anything else is a fresh session.
         if (GameSession.suspended && !intent.getBooleanExtra("fresh", false)) return
@@ -241,12 +284,13 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
                         }
                         val bmp = bitmaps[i] ?: Bitmap.wrapHardwareBuffer(buffers[i], ColorSpace.get(ColorSpace.Named.SRGB))!!.also { bitmaps[i] = it }
                         // TEST-ONLY: --ez nodraw true acks without the HWUI canvas draw (panel stays lit, screen shows nothing). Never set on the tile path.
-                        if (!noDraw) view.holder.lockHardwareCanvas()?.let { c ->
+                        val target = floatHolder ?: view.holder
+                        if (!noDraw) target.lockHardwareCanvas()?.let { c ->
                             // GL renders bottom-up into the dma-buf: flip on the canvas, free on the GPU. Vulkan is already top-down.
                             c.save(); if (!vulkan) c.scale(1f, -1f, c.width / 2f, c.height / 2f)
                             c.drawBitmap(bmp, null, Rect(0, 0, c.width, c.height), paint)
                             c.restore()
-                            view.holder.unlockCanvasAndPost(c)
+                            target.unlockCanvasAndPost(c)
                         }
                         // TEST-ONLY: --ei ackdelayms N holds each ack N ms, capping any game at about 1000/N fps. Never set on the tile path.
                         if (ackDelayMs > 0) Thread.sleep(ackDelayMs.toLong())
@@ -270,6 +314,7 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         // TEST-ONLY: --ez nosuspend true keeps the game rendering with the panel off (frames acked without drawing). Never set on the tile path.
         if (!isFinishing && GameSession.external && intent.getBooleanExtra("nosuspend", false)) return
+        if (float != null) return // the game moved to its corner window and keeps running
         if (!isFinishing && GameSession.external) suspendGame() else stop()
     }
 
@@ -295,6 +340,7 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
 
     private fun stop() {
         closing = true
+        endFloat()
         if (GameSession.external) { GameSession.signal("KILL"); GameSession.external = false; GameSession.suspended = false }
         try { client?.close() } catch (_: Exception) { }
         try { server?.close() } catch (_: Exception) { }
@@ -318,7 +364,7 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         // Hold Share about a second: the game moves to the corner (the press itself still reaches the game through evdev)
         if (event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) shareDown = event.eventTime
-            if (event.action == KeyEvent.ACTION_UP && shareDown > 0 && event.eventTime - shareDown >= 800) enterCorner()
+            if (event.action == KeyEvent.ACTION_UP && shareDown > 0 && event.eventTime - shareDown >= 800) startFloat()
             if (event.action == KeyEvent.ACTION_UP) shareDown = 0
         }
         return true

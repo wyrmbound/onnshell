@@ -32,6 +32,13 @@ object Prefs {
     fun themeId(ctx: Context): String = sp(ctx).getString("theme", "slate") ?: "slate"
     fun setThemeId(ctx: Context, id: String) = sp(ctx).edit().putString("theme", id).apply()
 
+    /** Corner window size, percent of the screen width (FloatWindow.SIZES: 25, 33, 45). Medium by default. */
+    fun cornerSize(ctx: Context) = sp(ctx).getInt("corner_size", 33)
+    fun setCornerSize(ctx: Context, pct: Int) = sp(ctx).edit().putInt("corner_size", pct).apply()
+    /** Corner window position: 0 bottom right (default), 1 bottom left, 2 top right, 3 top left. */
+    fun cornerPos(ctx: Context) = sp(ctx).getInt("corner_pos", 0)
+    fun setCornerPos(ctx: Context, i: Int) = sp(ctx).edit().putInt("corner_pos", i).apply()
+
     /** Game sound while the game plays in the corner window: off by default, so the app behind it is heard. */
     fun cornerGameAudio(ctx: Context) = sp(ctx).getBoolean("corner_audio", false)
     fun setCornerGameAudio(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("corner_audio", on).apply()
