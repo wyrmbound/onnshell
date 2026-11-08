@@ -80,16 +80,22 @@ object FileDrop {
         if (len > GameFiles.INBOX.usableSpace - KEEP_FREE) return respond(out, 507, "not enough space on the box")
         val dest = File(GameFiles.INBOX, rel).apply { parentFile?.mkdirs() }
         val tmp = File(dest.path + ".part") // an interrupted upload never looks like a finished file
-        var left = len
-        tmp.outputStream().use { o ->
-            val buf = ByteArray(1 shl 20)
-            while (left > 0) {
-                val n = input.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
-                if (n < 0) break
-                o.write(buf, 0, n); left -= n
+        var left: Long = len
+        // A dropped connection throws out of read(); without the catch the half file stayed behind as a .part (seen: 1.1 GB)
+        val copied = runCatching {
+            tmp.outputStream().use { o ->
+                val buf = ByteArray(1 shl 20)
+                while (left > 0) {
+                    val n = input.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                    if (n < 0) break
+                    o.write(buf, 0, n); left -= n
+                }
             }
+        }.isSuccess
+        if (!copied || left > 0 || !(dest.delete() || !dest.exists()) || !tmp.renameTo(dest)) {
+            tmp.delete()
+            return runCatching { respond(out, 500, "upload incomplete") }.let { }
         }
-        if (left > 0 || !(dest.delete() || !dest.exists()) || !tmp.renameTo(dest)) { tmp.delete(); return respond(out, 500, "upload incomplete") }
         main.post { received += Got(rel, len) }
         respond(out, 200, "ok")
     }

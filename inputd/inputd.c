@@ -6,10 +6,16 @@
  *               touchscreen made with /dev/uinput, mapped onto a rectangle of the screen.
  * Share + pad click toggles the mode from the controller. The PS button presses HOME, in every app.
  *
+ * MIRROR (picture in picture for regular Android games): the controller is grabbed and replayed on a copy made
+ * with /dev/uinput whose phys is "onnshell-hidden"; OnnShell ties that port to the hidden screen the game runs on,
+ * so the game gets the controller and the remote stays with the TV. PS then means "back to full screen" (pipexit).
+ * Holding Share for 0.7 s on its own reports "sharehold" (OnnShell puts the game in the corner).
+ *
  * Runs as the shell user (group uhid can open /dev/uinput, group input can read the pad),
  * started by OnnShell through Shizuku. One line per message:
- *   stdin:  mode touch | mode pointer | screen W H | rect X Y W H | home | idle SECS | quit
- *   stdout: ready | pad PATH W H | nopad | mode NAME | toggle NAME | home | idle MAC | lat AVG_US MAX_US N | err TEXT
+ *   stdin:  mode touch | mode pointer | screen W H | rect X Y W H | home | idle SECS | mirror on | mirror off | quit
+ *   stdout: ready | pad PATH W H | nopad | mode NAME | toggle NAME | home | idle MAC | lat AVG_US MAX_US N |
+ *           sharehold | pipexit | mirror on | mirror off | err TEXT
  * "idle MAC": the controller has had no real input for an hour (idle SECS changes that, for tests);
  * OnnShell then drops its Bluetooth link, which makes a DS4 turn itself off, like a PS4 does.
  * When stdin closes (OnnShell died) it exits, and closing the fds releases the grab, so the
@@ -47,6 +53,8 @@ static int lat_n;
 static long long last_input, idle_us = 3600LL * 1000000; /* idle_us: when to report the pad idle */
 static int idle_sent;
 static char joy_mac[32];
+static int mirror = 0, clone = -1, share_used = 0;
+static long long share_at;
 
 static void out(const char *fmt, ...) {
     va_list a;
@@ -110,6 +118,52 @@ static int make_touchscreen(void) {
         return -1;
     }
     return u;
+}
+
+/* A copy of the controller (same name and ids, so Android uses the same key layout), phys "onnshell-hidden". */
+static int make_clone(void) {
+    int u = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+    if (u < 0) { out("err uinput open %d", errno); return -1; }
+    unsigned long bits[NLONGS(KEY_CNT)];
+    memset(bits, 0, sizeof bits);
+    if (ioctl(joy, EVIOCGBIT(EV_KEY, sizeof bits), bits) >= 0) {
+        ioctl(u, UI_SET_EVBIT, EV_KEY);
+        for (int c = 0; c < KEY_CNT; c++) if ((bits[c / LBITS] >> (c % LBITS)) & 1) ioctl(u, UI_SET_KEYBIT, c);
+    }
+    memset(bits, 0, sizeof bits);
+    if (ioctl(joy, EVIOCGBIT(EV_ABS, sizeof bits), bits) >= 0) {
+        ioctl(u, UI_SET_EVBIT, EV_ABS);
+        for (int c = 0; c < ABS_CNT; c++) {
+            if (!((bits[c / LBITS] >> (c % LBITS)) & 1)) continue;
+            struct uinput_abs_setup a;
+            memset(&a, 0, sizeof a);
+            a.code = c;
+            if (ioctl(joy, EVIOCGABS(c), &a.absinfo) == 0) ioctl(u, UI_ABS_SETUP, &a);
+        }
+    }
+    ioctl(u, UI_SET_PHYS, "onnshell-hidden");
+    struct uinput_setup us;
+    memset(&us, 0, sizeof us);
+    ioctl(joy, EVIOCGID, &us.id);
+    ioctl(joy, EVIOCGNAME(sizeof us.name), us.name);
+    if (ioctl(u, UI_DEV_SETUP, &us) < 0 || ioctl(u, UI_DEV_CREATE) < 0) {
+        out("err uinput clone %d", errno);
+        close(u);
+        return -1;
+    }
+    return u;
+}
+
+/* Starts or stops handing the controller to the copy. Called again after the pad comes back from sleep. */
+static void set_mirror(int on) {
+    mirror = on;
+    if (on && joy >= 0 && clone < 0) {
+        clone = make_clone();
+        if (clone >= 0 && ioctl(joy, EVIOCGRAB, (void *)1L) < 0) out("err grab %d", errno);
+    } else if (!on) {
+        if (joy >= 0) ioctl(joy, EVIOCGRAB, (void *)0L);
+        if (clone >= 0) { ioctl(clone, UI_DEV_DESTROY); close(clone); clone = -1; }
+    }
 }
 
 /*
@@ -199,6 +253,7 @@ static void scan(void) {
                 joy_mac[0] = 0;
                 ioctl(f, EVIOCGUNIQ(sizeof joy_mac), joy_mac); /* Bluetooth pads: their address */
                 last_input = now_us(); idle_sent = 0;
+                if (mirror) set_mirror(1);
                 continue;
             }
         }
@@ -226,6 +281,7 @@ static int map(int v, struct input_absinfo *a, int origin, int size, int limit) 
 
 static void pad_event(struct input_event *e) {
     if (e->type == EV_KEY && e->code == BTN_LEFT && e->value == 1 && share) {
+        share_used = 1;
         set_mode(!touch_mode);
         out("toggle %s", mode_name());
         return;
@@ -269,6 +325,7 @@ static void drop(int *fd) {
         grabbed = 0;
     } else {
         share = 0;
+        if (clone >= 0) { ioctl(clone, UI_DEV_DESTROY); close(clone); clone = -1; } /* made again when it is back */
     }
     close(*fd);
     *fd = -1;
@@ -295,8 +352,17 @@ static void read_dev(int *fd) {
         for (ssize_t i = 0; i < n / (ssize_t)sizeof ev[0]; i++) {
             if (moved(*fd, &ev[i])) { last_input = now_us(); idle_sent = 0; }
             if (*fd == joy) {
-                if (ev[i].type == EV_KEY && ev[i].code == BTN_SELECT) share = ev[i].value != 0;
-                if (ev[i].type == EV_KEY && ev[i].code == BTN_MODE && ev[i].value == 1) press_home();
+                struct input_event *e = &ev[i];
+                if (e->type == EV_KEY && e->code == BTN_SELECT) {
+                    share = e->value != 0;
+                    if (e->value == 1) { share_at = now_us(); share_used = 0; }
+                    else if (e->value == 0 && !share_used && !mirror && now_us() - share_at >= 700000) out("sharehold");
+                } else if (e->type == EV_KEY && e->value == 1 && share) share_used = 1; /* a combo, not a hold */
+                if (e->type == EV_KEY && e->code == BTN_MODE) {
+                    if (e->value == 1) { if (mirror) out("pipexit"); else press_home(); }
+                    if (mirror) continue; /* PS is ours while the game is in the corner */
+                }
+                if (mirror && clone >= 0 && write(clone, e, sizeof *e) < 0 && errno != EAGAIN) out("err clone write %d", errno);
             } else {
                 if (ev[i].type == EV_SYN) frame_us = ev[i].input_event_sec * 1000000LL + ev[i].input_event_usec;
                 pad_event(&ev[i]);
@@ -332,6 +398,9 @@ static int read_cmds(void) {
         } else if (sscanf(buf, "idle %d", &a) == 1 && a > 0) {
             idle_us = a * 1000000LL;
             idle_sent = 0;
+        } else if (!strcmp(buf, "mirror on") || !strcmp(buf, "mirror off")) {
+            set_mirror(buf[8] == 'n');
+            out("mirror %s", mirror ? (clone >= 0 ? "on" : "waiting") : "off");
         } else if (!strcmp(buf, "home")) { /* same as a PS press, for tests over ADB */
             press_home();
         } else if (!strcmp(buf, "quit")) {

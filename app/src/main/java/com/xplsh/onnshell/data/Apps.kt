@@ -140,6 +140,15 @@ object Apps {
         return g to a.filter { it.pkg in whitelist }
     }
 
+    /** The Games row rule for one package: Android's game category, OUYA's, or moved to Games by the owner. */
+    fun isGame(ctx: Context, pkg: String): Boolean {
+        if (pkg in Prefs.games(ctx)) return true
+        val pm = ctx.packageManager
+        val ai = runCatching { pm.getApplicationInfo(pkg, 0) }.getOrNull() ?: return false
+        return ai.category == ApplicationInfo.CATEGORY_GAME ||
+            pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory("tv.ouya.intent.category.GAME").setPackage(pkg), 0).isNotEmpty()
+    }
+
     /** First run whitelist: the defaults plus every non-game app the owner installed. */
     fun seed(apps: List<AppEntry>): Set<String> =
         DEFAULT_WHITELIST + apps.filter { !it.isGame && !it.isSystem }.map { it.pkg }

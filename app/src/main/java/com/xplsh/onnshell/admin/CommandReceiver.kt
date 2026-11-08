@@ -105,8 +105,11 @@ class CommandReceiver : BroadcastReceiver() {
                 // In-game performance overlay: --ez on true|false. The game screen reads it when it comes to the front.
                 "HUD" -> { val on = intent.getBooleanExtra("on", true); com.xplsh.onnshell.data.Prefs.setPerfHud(ctx, on); "hud=$on" }
                 // Picture in picture, for tests: CORNER moves the running game to the corner, CORNER_EXIT brings it back
-                "CORNER" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.startFloat() }; "corner requested" } ?: "no game screen"
-                "CORNER_EXIT" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.leaveCorner() }; "full screen requested" } ?: "no game screen"
+                // A regular Android game (no 64-bit game screen open) goes through the hidden screen: --es pkg, or the app in front
+                "CORNER" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.startFloat() }; "corner requested" }
+                    ?: (intent.getStringExtra("pkg") ?: com.xplsh.onnshell.data.Inputd.app).let { g -> android.os.Handler(android.os.Looper.getMainLooper()).post { com.xplsh.onnshell.display.HiddenCorner.enter(ctx, g) }; "hidden corner requested for $g" }
+                "CORNER_EXIT" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.leaveCorner() }; "full screen requested" }
+                    ?: run { android.os.Handler(android.os.Looper.getMainLooper()).post { com.xplsh.onnshell.display.HiddenCorner.exit(ctx) }; "hidden corner exit requested" }
                 "APPLY" -> Policy.apply(ctx)
                 "UNPROVISION" -> Policy.unprovision(ctx)
                 "UNHIDE" -> Policy.undo(ctx, "hide", intent.getStringExtra("pkg") ?: return fail("missing --es pkg"))

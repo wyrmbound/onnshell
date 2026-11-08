@@ -6,3 +6,5 @@
 # Shizuku loads the user service by class name (no-arg constructor) and binds through the AIDL stub.
 -keep class com.xplsh.onnshell.display.BufferBridge { *; }
 -keep class com.xplsh.onnshell.display.IBufferBridge** { *; }
+-keep class com.xplsh.onnshell.display.HiddenScreen { *; }
+-keep class com.xplsh.onnshell.display.IHiddenScreen** { *; }

@@ -88,6 +88,13 @@ object Inputd {
                 val w = line.split(" ")
                 when (w[0]) {
                     "ready" -> { running = true; setIdleMins(Prefs.padIdleMins(ctx)) }
+                    // Share held in a regular Android game: the game goes to the corner (hidden screen). Our own 64-bit
+                    // game screen has its own Share hold, so OnnShell in front is left alone. Games only: a Share press
+                    // over Netflix put Netflix itself in the corner, black from its copy protection (owner test 2026-11-11).
+                    "sharehold" -> app.takeIf { it.isNotEmpty() && it != ctx.packageName && Apps.isGame(ctx, it) }
+                        ?.let { g -> main.post { com.xplsh.onnshell.display.HiddenCorner.enter(ctx, g) } }
+                    // PS while the controller belongs to the hidden screen: the game back to full screen
+                    "pipexit" -> main.post { com.xplsh.onnshell.display.HiddenCorner.exit(ctx) }
                     // PS pressed: freeze the game now. Android's HOME follows about 300 ms later (it waits for a possible
                     // double press), and until then the game kept playing, sound included (owner report, 2026-11-09).
                     "home" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.pauseForHome() } }
@@ -128,6 +135,9 @@ object Inputd {
         val r = ShellUser.output("CLASSPATH='${ctx.applicationInfo.sourceDir}' app_process /system/bin ${PadOff::class.java.name} $mac 2>&1")
         android.util.Log.i("Inputd", "idle pad $mac: ${r?.trim() ?: "failed"}")
     }
+
+    /** Hands the controller to the hidden screen (a copy tied to it) or back to the TV. */
+    fun mirror(on: Boolean) = send(if (on) "mirror on" else "mirror off")
 
     /** ADB test hook: report the pad idle after [secs] instead of the setting. */
     fun setIdle(secs: Int) = send("idle $secs")
