@@ -179,6 +179,8 @@ fun Shell(resumes: Int) {
     var themeId by remember { mutableStateOf(Prefs.themeId(ctx)) }
     var perfHud by remember { mutableStateOf(Prefs.perfHud(ctx)) }
     var cornerAudio by remember { mutableStateOf(Prefs.cornerGameAudio(ctx)) }
+    var boxSpeaker by remember { mutableStateOf(Prefs.boxSpeaker(ctx)) }
+    var padIdle by remember { mutableIntStateOf(Prefs.padIdleMins(ctx)) }
     var cornerSize by remember { mutableIntStateOf(Prefs.cornerSize(ctx)) }
     var cornerPos by remember { mutableIntStateOf(Prefs.cornerPos(ctx).coerceIn(0, 3)) }
     LaunchedEffect(resumes) { themeId = Prefs.themeId(ctx) } // the THEME command and a relaunch change it without recreating us
@@ -370,6 +372,16 @@ fun Shell(resumes: Int) {
                         },
                         stringResource(R.string.settings_corner_audio, stringResource(if (cornerAudio) R.string.corner_audio_game else R.string.corner_audio_tv)) to {
                             cornerAudio = !cornerAudio; Prefs.setCornerGameAudio(ctx, cornerAudio)
+                        },
+                        stringResource(R.string.settings_sound_out, stringResource(if (boxSpeaker) R.string.sound_out_box else R.string.sound_out_tv)) to {
+                            boxSpeaker = !boxSpeaker; Prefs.setBoxSpeaker(ctx, boxSpeaker)
+                            com.xplsh.onnshell.display.ZeroCopyActivity.current?.audio?.device = com.xplsh.onnshell.data.Speaker.forGames(ctx)
+                        },
+                        stringResource(R.string.settings_pad_idle,
+                            if (padIdle == 0) stringResource(R.string.pad_idle_never) else stringResource(R.string.pad_idle_mins, padIdle)) to {
+                            val all = Prefs.PAD_IDLE_MINS
+                            padIdle = all[(all.indexOf(padIdle) + 1) % all.size]; Prefs.setPadIdleMins(ctx, padIdle)
+                            com.xplsh.onnshell.data.Inputd.setIdleMins(padIdle)
                         },
                         stringResource(R.string.settings_perf_hud, stringResource(if (perfHud) R.string.on else R.string.off)) to {
                             perfHud = !perfHud; Prefs.setPerfHud(ctx, perfHud)

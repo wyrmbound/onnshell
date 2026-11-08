@@ -179,6 +179,12 @@
     <string name="store_needs">Needs</string>
     <string name="store_warn_needs">This port needs: %1$s</string>
     <string name="settings_perf_hud">Performance overlay: %1$s</string>
+    <string name="settings_sound_out">Game sound: %1$s</string>
+    <string name="sound_out_tv">TV</string>
+    <string name="sound_out_box">box speaker</string>
+    <string name="settings_pad_idle">Controller turns off after: %1$s</string>
+    <string name="pad_idle_mins">%1$d min</string>
+    <string name="pad_idle_never">never</string>
     <string name="settings_corner_audio">Corner game sound: %1$s</string>
     <string name="corner_audio_game">game</string>
     <string name="corner_audio_tv">TV app</string>

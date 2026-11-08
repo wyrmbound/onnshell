@@ -32,6 +32,9 @@ object Apps {
     /** Every launchable app except OnnShell, with icons. Call off the main thread. */
     fun load(ctx: Context): List<AppEntry> {
         val pm = ctx.packageManager
+        // Some games mark themselves only with OUYA's category, not Android's appCategory (Pokemon Red recomp)
+        val ouya = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory("tv.ouya.intent.category.GAME"), 0)
+            .map { it.activityInfo.packageName }.toSet()
         return listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER)
             .flatMap { pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(it), 0) }
             .map { it.activityInfo.applicationInfo }
@@ -44,7 +47,7 @@ object Apps {
                 AppEntry(
                     label = ai.loadLabel(pm).toString(),
                     pkg = ai.packageName,
-                    isGame = ai.category == ApplicationInfo.CATEGORY_GAME,
+                    isGame = ai.category == ApplicationInfo.CATEGORY_GAME || ai.packageName in ouya,
                     // Preinstalled apps that got Play updates (Netflix, YouTube) count as the owner's apps
                     isSystem = ai.flags and ApplicationInfo.FLAG_SYSTEM != 0 &&
                         ai.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0,

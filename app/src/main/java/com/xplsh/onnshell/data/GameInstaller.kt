@@ -117,6 +117,7 @@ object GameInstaller {
             download(url, apk, size) { onProgress(it * 0.8f, "Downloading") }
             if (!sha256.isNullOrBlank()) require(sha256(apk).equals(sha256, true)) { "download is corrupt (checksum)" }
             onProgress(0.85f, "Installing")
+            unwrap(apk)
             val p = ZipFile(apk).use { z -> classify(z.entries().toList().map { it.name }) }
             when {
                 p.engine == Engine.SDL3 -> install64(ctx, id, apk, "sdl3") // our runtime even when a 32-bit build exists
@@ -126,6 +127,17 @@ object GameInstaller {
             }
             onProgress(1f, "Installed")
         }.onFailure { Log.e(TAG, "install $id: $it") }
+    }
+
+    /** Some releases ship the APK inside a zip (Open Tyrian 2000): put that APK in its place. */
+    private fun unwrap(f: File) {
+        val inner = File(f.path + ".inner")
+        ZipFile(f).use { z ->
+            if (z.getEntry("AndroidManifest.xml") != null) return
+            val e = z.entries().toList().filter { it.name.endsWith(".apk") }.singleOrNull() ?: return
+            z.getInputStream(e).use { i -> inner.outputStream().use { i.copyTo(it) } }
+        }
+        check(inner.renameTo(f)) { "could not unpack the APK" }
     }
 
     private fun download(url: String, dest: File, size: Long, progress: (Float) -> Unit) {

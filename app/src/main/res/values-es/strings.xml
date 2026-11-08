@@ -179,6 +179,12 @@
     <string name="store_needs">Necesita</string>
     <string name="store_warn_needs">Este port necesita: %1$s</string>
     <string name="settings_perf_hud">Panel de rendimiento: %1$s</string>
+    <string name="settings_sound_out">Sonido del juego: %1$s</string>
+    <string name="sound_out_tv">TV</string>
+    <string name="sound_out_box">altavoz del aparato</string>
+    <string name="settings_pad_idle">El mando se apaga tras: %1$s</string>
+    <string name="pad_idle_mins">%1$d min</string>
+    <string name="pad_idle_never">nunca</string>
     <string name="settings_corner_audio">Sonido del juego en la esquina: %1$s</string>
     <string name="corner_audio_game">juego</string>
     <string name="corner_audio_tv">app de TV</string>

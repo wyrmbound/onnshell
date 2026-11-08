@@ -41,7 +41,8 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
     private var thread: Thread? = null
     private var bridge: IBufferBridge? = null
     // Per session, from the launch that started it (a relaunch brings new rate/channels).
-    private var audio: AudioSink? = null
+    var audio: AudioSink? = null
+        private set
     private val paint = android.graphics.Paint()
 
     // A never-reused service tag per session, counted across activity instances: a clear-task relaunch is a new
@@ -205,7 +206,9 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         bitmaps = arrayOfNulls(buffers.size)
         thread = Thread({ serve() }, "m4-recv").also { it.start() }
         // Default = what our SDL now always delivers under ONNM4 (48 kHz stereo); --ei rate/channels only for old tests
-        audio = AudioSink(intent.getIntExtra("rate", 48000), intent.getIntExtra("channels", 2)).also { it.start() }
+        audio = AudioSink(intent.getIntExtra("rate", 48000), intent.getIntExtra("channels", 2)).also {
+            it.device = com.xplsh.onnshell.data.Speaker.forGames(this); it.start()
+        }
 
         val frames = intent.getIntExtra("frames", 600)
         // --ez launch false: an external renderer (m6, the game) connects to @onn-m4 instead of m4h.

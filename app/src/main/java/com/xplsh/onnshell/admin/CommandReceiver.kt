@@ -21,6 +21,11 @@ class CommandReceiver : BroadcastReceiver() {
                     val pkg = intent.getStringExtra("pkg") ?: return fail("missing --es pkg")
                     com.xplsh.onnshell.data.Inputd.setProfile(ctx, pkg, intent.getBooleanExtra("touch", false), intent.getStringExtra("rect"))
                 }
+                "PAD_IDLE" -> { com.xplsh.onnshell.data.Inputd.setIdle(intent.getIntExtra("secs", 3600)); "pad idle after ${intent.getIntExtra("secs", 3600)} s" } // --ei secs N, until inputd restarts
+                "SPEAKER_TEST" -> { // boot chime on the box speaker: --ef vol 0..1 (default 0.3)
+                    val d = com.xplsh.onnshell.data.Speaker.chime(ctx, intent.getFloatExtra("vol", 0.3f))
+                    "speaker=${d?.let { "${it.productName} id ${it.id}" } ?: "none (default output)"}"
+                }
                 "EFFECTS" -> { // UI setting, for performance tests: --ez lite true|false, applies live
                     val lite = intent.getBooleanExtra("lite", false)
                     com.xplsh.onnshell.data.Prefs.setLite(ctx, lite)

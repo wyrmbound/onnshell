@@ -46,6 +46,15 @@ object Prefs {
     fun cornerGameAudio(ctx: Context) = sp(ctx).getBoolean("corner_audio", false)
     fun setCornerGameAudio(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("corner_audio", on).apply()
 
+    /** Game sound from the box's own speaker instead of the TV. Off by default. */
+    fun boxSpeaker(ctx: Context) = sp(ctx).getBoolean("box_speaker", false)
+    fun setBoxSpeaker(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("box_speaker", on).apply()
+
+    /** Minutes without input before the controller is turned off; 0 = never. */
+    val PAD_IDLE_MINS = listOf(10, 30, 60, 120, 0)
+    fun padIdleMins(ctx: Context) = sp(ctx).getInt("pad_idle_min", 60)
+    fun setPadIdleMins(ctx: Context, m: Int) = sp(ctx).edit().putInt("pad_idle_min", m).apply()
+
     /** The in-game performance overlay (fps, temperature, memory). Off by default. */
     fun perfHud(ctx: Context) = sp(ctx).getBoolean("perf_hud", false)
     fun setPerfHud(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("perf_hud", on).apply()

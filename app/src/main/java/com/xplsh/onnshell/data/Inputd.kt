@@ -87,7 +87,7 @@ object Inputd {
             p.inputStream.bufferedReader().forEachLine { line ->
                 val w = line.split(" ")
                 when (w[0]) {
-                    "ready" -> running = true
+                    "ready" -> { running = true; setIdleMins(Prefs.padIdleMins(ctx)) }
                     // PS pressed: freeze the game now. Android's HOME follows about 300 ms later (it waits for a possible
                     // double press), and until then the game kept playing, sound included (owner report, 2026-11-09).
                     "home" -> com.xplsh.onnshell.display.ZeroCopyActivity.current?.let { a -> a.runOnUiThread { a.pauseForHome() } }
@@ -98,6 +98,7 @@ object Inputd {
                         apply(ctx, app) // the rect depends on the pad's size
                     }
                     "nopad" -> pad = null
+                    "idle" -> w.getOrNull(1)?.let { mac -> Thread { padOff(ctx, mac) }.start() }
                     "mode" -> touch = w.getOrNull(1) == "touch"
                     "toggle" -> {
                         touch = w.getOrNull(1) == "touch"
@@ -117,6 +118,21 @@ object Inputd {
             alive = false
         }
     }
+
+    /**
+     * The pad sat untouched for an hour: drop its Bluetooth link so it turns itself off (a DS4 does).
+     * Only the shell user may disconnect a device (BLUETOOTH_PRIVILEGED), so [PadOff] runs as shell from our own APK.
+     */
+    private fun padOff(ctx: Context, mac: String) {
+        if (!Regex("[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}").matches(mac)) { error = "idle: odd address $mac"; return }
+        val r = ShellUser.output("CLASSPATH='${ctx.applicationInfo.sourceDir}' app_process /system/bin ${PadOff::class.java.name} $mac 2>&1")
+        android.util.Log.i("Inputd", "idle pad $mac: ${r?.trim() ?: "failed"}")
+    }
+
+    /** ADB test hook: report the pad idle after [secs] instead of the setting. */
+    fun setIdle(secs: Int) = send("idle $secs")
+    /** The Settings value: turn the pad off after [mins] idle; 0 = never (inputd has no "never", so about 68 years). */
+    fun setIdleMins(mins: Int) = setIdle(if (mins <= 0) Int.MAX_VALUE else mins * 60)
 
     /** Sends the profile of [pkg]: its rectangle, then its mode. */
     fun apply(ctx: Context, pkg: String) {

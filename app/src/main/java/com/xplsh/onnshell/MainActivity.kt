@@ -39,16 +39,11 @@ class MainActivity : ComponentActivity() {
         com.xplsh.onnshell.data.ShizukuBoot.ensure(this)
     }
 
-    /** Boot chime: once per boot, and only when HOME comes up soon after boot — not on a later cold restart. */
+    /** Boot chime on the box speaker: once per boot, and only when HOME comes up soon after boot, not on a later cold restart. */
     private fun playStartupJingle() {
         if (jinglePlayed || SystemClock.elapsedRealtime() > 90_000L) return
         jinglePlayed = true
-        runCatching {
-            MediaPlayer.create(this, R.raw.onnshell_startup)?.apply {
-                setOnCompletionListener { it.release() }
-                start()
-            }
-        }
+        runCatching { com.xplsh.onnshell.data.Speaker.chime(this) }
     }
 
     private val binderReceived = Shizuku.OnBinderReceivedListener {

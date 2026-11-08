@@ -8,8 +8,10 @@
  *
  * Runs as the shell user (group uhid can open /dev/uinput, group input can read the pad),
  * started by OnnShell through Shizuku. One line per message:
- *   stdin:  mode touch | mode pointer | screen W H | rect X Y W H | home | quit
- *   stdout: ready | pad PATH W H | nopad | mode NAME | toggle NAME | home | lat AVG_US MAX_US N | err TEXT
+ *   stdin:  mode touch | mode pointer | screen W H | rect X Y W H | home | idle SECS | quit
+ *   stdout: ready | pad PATH W H | nopad | mode NAME | toggle NAME | home | idle MAC | lat AVG_US MAX_US N | err TEXT
+ * "idle MAC": the controller has had no real input for an hour (idle SECS changes that, for tests);
+ * OnnShell then drops its Bluetooth link, which makes a DS4 turn itself off, like a PS4 does.
  * When stdin closes (OnnShell died) it exits, and closing the fds releases the grab, so the
  * pad is never left stuck.
  *
@@ -42,6 +44,9 @@ static struct input_absinfo ax, ay;
 static char pad_path[64];
 static long long lat_sum, lat_max, frame_us;
 static int lat_n;
+static long long last_input, idle_us = 3600LL * 1000000; /* idle_us: when to report the pad idle */
+static int idle_sent;
+static char joy_mac[32];
 
 static void out(const char *fmt, ...) {
     va_list a;
@@ -191,6 +196,9 @@ static void scan(void) {
             }
             if (joy < 0 && has(f, EV_KEY, BTN_SELECT) && !has(f, EV_ABS, ABS_MT_POSITION_X)) {
                 joy = f;
+                joy_mac[0] = 0;
+                ioctl(f, EVIOCGUNIQ(sizeof joy_mac), joy_mac); /* Bluetooth pads: their address */
+                last_input = now_us(); idle_sent = 0;
                 continue;
             }
         }
@@ -266,6 +274,18 @@ static void drop(int *fd) {
     *fd = -1;
 }
 
+/* Real input, not noise: a resting DS4 stick flickers by one or two steps all the time (125/126 seen). */
+static int moved(int fd, struct input_event *e) {
+    if (e->type == EV_KEY) return 1;
+    if (e->type != EV_ABS) return 0;
+    if (fd != joy) return 1; /* the touchpad only reports a finger on it */
+    switch (e->code) {
+    case ABS_X: case ABS_Y: case ABS_RX: case ABS_RY: return abs(e->value - 128) > 40;
+    case ABS_Z: case ABS_RZ: return e->value > 40; /* triggers rest at 0 */
+    default: return e->value != 0; /* d-pad */
+    }
+}
+
 static void read_dev(int *fd) {
     struct input_event ev[64];
     for (;;) {
@@ -273,6 +293,7 @@ static void read_dev(int *fd) {
         if (n < 0 && errno == EAGAIN) return;
         if (n <= 0) { drop(fd); return; } /* unplugged or asleep: rescan later */
         for (ssize_t i = 0; i < n / (ssize_t)sizeof ev[0]; i++) {
+            if (moved(*fd, &ev[i])) { last_input = now_us(); idle_sent = 0; }
             if (*fd == joy) {
                 if (ev[i].type == EV_KEY && ev[i].code == BTN_SELECT) share = ev[i].value != 0;
                 if (ev[i].type == EV_KEY && ev[i].code == BTN_MODE && ev[i].value == 1) press_home();
@@ -308,6 +329,9 @@ static int read_cmds(void) {
         } else if (sscanf(buf, "rect %d %d %d %d", &a, &b, &c, &d) == 4 &&
                    a >= 0 && b >= 0 && c > 0 && d > 0 && a + c <= scr_w && b + d <= scr_h) {
             rx = a; ry = b; rw = c; rh = d;
+        } else if (sscanf(buf, "idle %d", &a) == 1 && a > 0) {
+            idle_us = a * 1000000LL;
+            idle_sent = 0;
         } else if (!strcmp(buf, "home")) { /* same as a PS press, for tests over ADB */
             press_home();
         } else if (!strcmp(buf, "quit")) {
@@ -347,6 +371,10 @@ int main(void) {
         if ((pad < 0 || joy < 0) && now_us() - last_scan > 1000000) {
             scan();
             last_scan = now_us();
+        }
+        if (joy >= 0 && !idle_sent && joy_mac[0] && now_us() - last_input > idle_us) {
+            out("idle %s", joy_mac);
+            idle_sent = 1;
         }
         if (lat_n && now_us() - last_report > 2000000) {
             out("lat %lld %lld %d", lat_sum / lat_n, lat_max, lat_n);

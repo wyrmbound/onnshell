@@ -19,6 +19,9 @@ class AudioSink(private val rate: Int = 32000, private val channels: Int = 2) {
     /** Silences the game without stopping it (the corner window plays under another app's sound). */
     @Volatile var muted = false
     @Volatile private var track: AudioTrack? = null
+    /** Output to prefer (the box speaker), or null for Android's choice (the TV). Applies live. */
+    @Volatile var device: android.media.AudioDeviceInfo? = null
+        set(v) { field = v; track?.preferredDevice = v }
     /** Pause (and drop what is buffered) or resume the sound now, from any thread: the game is being frozen or thawed. */
     fun hold(on: Boolean) {
         val t = track ?: return
@@ -52,6 +55,7 @@ class AudioSink(private val rate: Int = 32000, private val channels: Int = 2) {
                         .setAudioFormat(AudioFormat.Builder().setSampleRate(rate).setChannelMask(mask)
                             .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                         .setBufferSizeInBytes(min * 2).setTransferMode(AudioTrack.MODE_STREAM).build()
+                    track.preferredDevice = device
                     track.play()
                     this.track = track
                     val buf = ByteArray(min)
