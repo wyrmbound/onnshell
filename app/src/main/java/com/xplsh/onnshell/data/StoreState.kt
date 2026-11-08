@@ -25,6 +25,8 @@ class StoreState(
     var error by mutableStateOf<String?>(null); private set
     var loading by mutableStateOf(false); private set
     var filter by mutableStateOf(Filter.ALL)
+    /** Store search: matches the name or id, ignoring case, spaces and punctuation. */
+    var query by mutableStateOf("")
     /** Id being installed, or null. */
     var busy by mutableStateOf<String?>(null); private set
     var progress by mutableStateOf(0f); private set
@@ -63,9 +65,9 @@ class StoreState(
         return true
     }
 
-    /** After the filter; installed first, then by rating, then by name. */
+    /** After the search and the filter; installed first, then by rating, then by name. */
     val visible: List<Entry>
-        get() = entries.filter {
+        get() = entries.filter { matches(it, query) }.filter {
             when (filter) {
                 Filter.ALL -> true
                 Filter.EXCELLENT -> it.rating == Rating.EXCELLENT
@@ -75,6 +77,11 @@ class StoreState(
         }.sortedWith(compareByDescending<Entry> { installed[it.id] == true }.thenBy { it.rating.ordinal }.thenBy { it.name.lowercase() })
 
     companion object {
+        private fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+        fun matches(e: Entry, query: String): Boolean {
+            val q = norm(query)
+            return q.isEmpty() || q in norm(e.name) || q in norm(e.id)
+        }
         /** The home screen's instance, for the ADB test hooks. */
         @Volatile var current: StoreState? = null
         fun forApp(ctx: Context, scope: CoroutineScope) = StoreState(

@@ -32,6 +32,10 @@ object Prefs {
     fun themeId(ctx: Context): String = sp(ctx).getString("theme", "slate") ?: "slate"
     fun setThemeId(ctx: Context, id: String) = sp(ctx).edit().putString("theme", id).apply()
 
+    /** The in-game performance overlay (fps, temperature, memory). Off by default. */
+    fun perfHud(ctx: Context) = sp(ctx).getBoolean("perf_hud", false)
+    fun setPerfHud(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("perf_hud", on).apply()
+
     /** Lite effects: the spec's flat look (no blur, no transparency, no drifting background). */
     fun lite(ctx: Context) = sp(ctx).getBoolean("lite", false)
     fun setLite(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("lite", on).apply()

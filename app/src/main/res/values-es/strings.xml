@@ -174,4 +174,9 @@
     <string name="pick_internal">Almacenamiento interno</string>
     <string name="pick_up">Subir una carpeta</string>
     <string name="pick_use_folder">Usar esta carpeta</string>
+    <string name="store_search">Buscar</string>
+    <string name="store_search_none">Ningún juego coincide con “%1$s”.</string>
+    <string name="store_needs">Necesita</string>
+    <string name="store_warn_needs">Este port necesita: %1$s</string>
+    <string name="settings_perf_hud">Panel de rendimiento: %1$s</string>
 </resources>

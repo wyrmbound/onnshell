@@ -98,6 +98,7 @@ fun Store(state: StoreState, accent: Accent, lite: Boolean, onGet: (Entry) -> Un
             Spacer(Modifier.width(28.dp))
             Text(stringResource(R.string.store_runs_here, state.visible.size), fontSize = 16.sp, color = theme.text2, modifier = Modifier.padding(bottom = 10.dp))
             Spacer(Modifier.weight(1f))
+            SearchPill(state, accent, lite, Modifier.padding(bottom = 10.dp, end = 8.dp))
             Row(Modifier.padding(bottom = 10.dp)) {
                 listOf(Filter.ALL to R.string.store_filter_all, Filter.EXCELLENT to R.string.store_filter_excellent,
                        Filter.PLAYABLE to R.string.store_filter_playable, Filter.INSTALLED to R.string.store_filter_installed).forEach { (f, res) ->
@@ -115,6 +116,7 @@ fun Store(state: StoreState, accent: Accent, lite: Boolean, onGet: (Entry) -> Un
                 Text(err, fontSize = 16.sp, color = theme.text3, modifier = Modifier.padding(top = 6.dp, bottom = 18.dp))
                 Choices(accent, listOf(stringResource(R.string.store_retry) to { state.refresh(force = true) }))
             }
+            state.visible.isEmpty() && state.query.isNotBlank() -> Text(stringResource(R.string.store_search_none, state.query), fontSize = 22.sp, color = theme.text2)
             theme.grid == Grid.STRIPS -> Ledger(state, accent, lite, onGet, onOpen)
             else -> Row(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f)) {
@@ -236,13 +238,18 @@ private fun Detail(e: Entry?, state: StoreState, accent: Accent, lite: Boolean) 
             if (entry == null) return@Crossfade
             Text(entry.name, fontFamily = theme.display, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(meta(entry), fontSize = 13.sp, color = theme.text3, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
-            Text(entry.description.ifEmpty { stringResource(R.string.store_no_description) }, fontSize = 14.sp, lineHeight = 20.sp, color = theme.text2, maxLines = 8, overflow = TextOverflow.Ellipsis)
+            Text(entry.description.ifEmpty { stringResource(R.string.store_no_description) }, fontSize = 14.sp, lineHeight = 20.sp, color = theme.text2, maxLines = if (entry.requires.isEmpty()) 8 else 3, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.store_rating), fontSize = 13.sp, color = theme.text2, modifier = Modifier.padding(end = 8.dp))
                 RatingChip(entry.rating.label(entry.estimated), entry.rating.color())
             }
             if (entry.reports > 0) Text(stringResource(R.string.store_reports, entry.reports), fontSize = 12.sp, color = theme.text3, modifier = Modifier.padding(top = 4.dp))
+            if (entry.requires.isNotEmpty()) {
+                Text(stringResource(R.string.store_needs), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.text2, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
+                // capped so the Get pill stays on screen; the Get warning shows every line in full
+                Text(entry.requires.joinToString(" "), fontSize = 12.sp, lineHeight = 16.sp, color = theme.text2, maxLines = 6, overflow = TextOverflow.Ellipsis)
+            }
             Spacer(Modifier.weight(1f))
             val installed = state.installed[entry.id] == true
             val label = when { state.busy == entry.id -> stringResource(R.string.store_installing); installed -> stringResource(R.string.store_open); else -> stringResource(R.string.store_get) }
@@ -325,4 +332,40 @@ private fun Ledger(state: StoreState, accent: Accent, lite: Boolean, onGet: (Ent
             }
         }
     }
+}
+
+/**
+ * Store search: a pill until pressed, then a text field with the TV keyboard, so moving across the header with the
+ * D-pad never pops the keyboard. Search on the keyboard, or leaving the field, closes it; the query stays as the pill's label.
+ */
+@Composable
+private fun SearchPill(state: StoreState, accent: Accent, lite: Boolean, modifier: Modifier) {
+    val theme = LocalTheme.current
+    var editing by remember { mutableStateOf(false) }
+    if (!editing) {
+        val label = state.query.ifBlank { stringResource(R.string.store_search) }
+        Box(modifier) { TabPill(label, state.query.isNotBlank(), accent, lite) { editing = true } }
+        return
+    }
+    val req = remember { androidx.compose.ui.focus.FocusRequester() }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    var hadFocus by remember { mutableStateOf(false) }
+    androidx.compose.foundation.text.BasicTextField(
+        value = state.query,
+        onValueChange = { state.query = it },
+        singleLine = true,
+        textStyle = androidx.compose.ui.text.TextStyle(color = theme.text, fontSize = 16.sp, fontFamily = theme.body),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(accent.main),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { editing = false; focus.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) }),
+        modifier = modifier.width(200.dp).focusRequester(req)
+            .onFocusChanged { if (it.isFocused) hadFocus = true else if (hadFocus) editing = false },
+        decorationBox = { inner ->
+            Row(Modifier.background(theme.surface, RoundedCornerShape(50)).border(2.dp, accent.main, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Box { if (state.query.isEmpty()) Text(stringResource(R.string.store_search), fontSize = 16.sp, color = theme.text3); inner() }
+            }
+        },
+    )
+    LaunchedEffect(Unit) { runCatching { req.requestFocus() } }
 }

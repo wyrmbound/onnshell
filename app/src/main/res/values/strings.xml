@@ -174,4 +174,9 @@
     <string name="pick_internal">Internal storage</string>
     <string name="pick_up">Up a folder</string>
     <string name="pick_use_folder">Use this folder</string>
+    <string name="store_search">Search</string>
+    <string name="store_search_none">No game matches “%1$s”.</string>
+    <string name="store_needs">Needs</string>
+    <string name="store_warn_needs">This port needs: %1$s</string>
+    <string name="settings_perf_hud">Performance overlay: %1$s</string>
 </resources>

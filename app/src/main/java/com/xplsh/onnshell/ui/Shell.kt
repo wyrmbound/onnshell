@@ -76,6 +76,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
@@ -156,7 +157,7 @@ data class Tile(
 )
 
 /** cards = app and game art, otherwise system tiles. */
-private data class Shelf(val title: String, val tiles: List<Tile>, val cards: Boolean, val placeholder: Boolean = false, val square: Boolean = false)
+internal data class Shelf(val title: String, val tiles: List<Tile>, val cards: Boolean, val placeholder: Boolean = false, val square: Boolean = false)
 
 /**
  * Focus state, kept out of Shell's own composition: only the hero, the backdrop and the tab
@@ -174,6 +175,7 @@ fun Shell(resumes: Int) {
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var accentIx by remember { mutableIntStateOf(Prefs.accentIndex(ctx)) }
     var themeId by remember { mutableStateOf(Prefs.themeId(ctx)) }
+    var perfHud by remember { mutableStateOf(Prefs.perfHud(ctx)) }
     LaunchedEffect(resumes) { themeId = Prefs.themeId(ctx) } // the THEME command and a relaunch change it without recreating us
     val theme = Themes.byId(themeId)
     val lite = Pad.lite
@@ -188,9 +190,30 @@ fun Shell(resumes: Int) {
     val store = remember { StoreState.forApp(ctx, scope) }
     LaunchedEffect(store.openRequest) { if (store.openRequest) { screen = Screen.Store; store.refresh(); store.openRequest = false } }
 
-    var removals by remember { mutableIntStateOf(0) } // bumped by Options > Uninstall
+    var removals by remember { mutableIntStateOf(0) } // bumped by Options > Uninstall, and by the watchers below
+    Apps.nameFor = { id -> store.entry(id)?.name }
+    // Games appear and disappear while HOME is up: a 64-bit game copied in or deleted over adb (the games folder is
+    // checked every 15 s, and only a change reloads), and any app installed, updated or removed (Android's broadcast).
+    LaunchedEffect(screen == Screen.Home) {
+        var sig: String? = null
+        while (screen == Screen.Home) {
+            val now = withContext(Dispatchers.IO) { Apps.nativeSignature(ctx) }
+            if (sig != null && now != sig) removals++
+            sig = now
+            delay(15_000)
+        }
+    }
+    DisposableEffect(Unit) {
+        val r = object : android.content.BroadcastReceiver() { override fun onReceive(c: Context, i: Intent) { removals++ } }
+        val f = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED); addAction(Intent.ACTION_PACKAGE_REMOVED); addAction(Intent.ACTION_PACKAGE_REPLACED); addDataScheme("package")
+        }
+        ctx.registerReceiver(r, f, Context.RECEIVER_NOT_EXPORTED)
+        onDispose { runCatching { ctx.unregisterReceiver(r) } }
+    }
     // Reload on every return to HOME, so installs and disables show up. New installs join the Apps row.
-    LaunchedEffect(resumes, store.installs, removals) {
+    // The Store's catalog arriving gives bare 64-bit games (no art of their own) their real names.
+    LaunchedEffect(resumes, store.installs, removals, store.entries.isEmpty()) {
         nativeGames = withContext(Dispatchers.Default) { runCatching { Apps.loadNative(ctx) }.getOrDefault(emptyList()) }
         apps = withContext(Dispatchers.Default) { Apps.load(ctx) }
         val own = ctx.packageManager.getPackageInfo(ctx.packageName, 0).firstInstallTime
@@ -244,11 +267,14 @@ fun Shell(resumes: Int) {
                 .putExtra("launch", false).putExtra("fresh", true).putExtra("game", e.id))
         } else e.pkg?.let { if (!Apps.launch(ctx, it)) nav.hint = ctx.getString(R.string.launch_failed, e.name) }
     }
-    /** Get: Medium and lower ratings get a warning first (CONSOLE_MODE section 10). */
+    /** Get: Medium and lower ratings, and ports that need one exact game version, get a warning first (CONSOLE_MODE sections 10 and 14). */
     fun getEntry(e: Entry) {
-        if (e.rating.ordinal >= Rating.MEDIUM.ordinal) {
+        val risky = e.rating.ordinal >= Rating.MEDIUM.ordinal
+        val needs = e.requires.takeIf { it.isNotEmpty() }?.let { ctx.getString(R.string.store_warn_needs, it.joinToString(" ")) }
+        if (risky || needs != null) {
             val tier = ctx.getString(if (e.rating == Rating.MEDIUM) R.string.rating_medium else R.string.rating_not_recommended)
-            screen = Screen.Confirm(ctx.getString(R.string.store_warn_medium, tier), ctx.getString(R.string.store_get), back = Screen.Store) { store.install(e); screen = Screen.Store }
+            val text = listOfNotNull(ctx.getString(R.string.store_warn_medium, tier).takeIf { risky }, needs).joinToString("\n\n")
+            screen = Screen.Confirm(text, ctx.getString(R.string.store_get), back = Screen.Store) { store.install(e); screen = Screen.Store }
         } else store.install(e)
     }
     fun info(title: Int, lines: suspend () -> List<String>) { screen = Screen.Info(ctx.getString(title), lines) }
@@ -323,6 +349,9 @@ fun Shell(resumes: Int) {
                         stringResource(R.string.settings_effects, stringResource(if (lite) R.string.effects_lite else R.string.effects_full)) to {
                             Pad.lite = !lite
                             Prefs.setLite(ctx, Pad.lite)
+                        },
+                        stringResource(R.string.settings_perf_hud, stringResource(if (perfHud) R.string.on else R.string.off)) to {
+                            perfHud = !perfHud; Prefs.setPerfHud(ctx, perfHud)
                         },
                         stringResource(R.string.settings_language, stringResource(R.string.lang_name)) to { toggleLanguage(ctx) },
                         stringResource(R.string.settings_apps_on_home) to { screen = Screen.EditApps },
@@ -549,7 +578,13 @@ private fun Home(
                             // key: a card slot follows its tile when rows load or shrink, else the slot keeps focus and the hero names the old tile
                             shelf.tiles.forEachIndexed { n, t -> key(t.id) {
                                 val req = reqs.getOrPut(t.id) { FocusRequester() }
-                                if (shelf.cards) GameCard(t, accent, lite, req, onFocus, shelf.square, n) else SystemTile(t, accent, req, onFocus)
+                                // Up/Down go to the same column of the next filled row. Without this the focused card's lift and
+                                // scale make its neighbour count as "below", so Down only stepped sideways in the row.
+                                val move = Modifier.focusProperties {
+                                    rowTarget(shelves, i, n, 1, reqs)?.let { down = it }
+                                    rowTarget(shelves, i, n, -1, reqs)?.let { up = it }
+                                }
+                                if (shelf.cards) GameCard(t, accent, lite, req, onFocus, shelf.square, n, move) else SystemTile(t, accent, req, onFocus, move)
                             } }
                         }
                     }
@@ -606,6 +641,14 @@ private fun Home(
         val id = nav.last.takeIf { it in ids && it != fallback } ?: ids.firstOrNull()?.also { fallback = it } ?: return@LaunchedEffect
         runCatching { reqs[id]?.requestFocus() }
     }
+}
+
+/** The tile [step] rows away from row [row] (empty rows skipped), in column [col] clamped to that row; null at the ends. */
+internal fun <T> rowTarget(shelves: List<Shelf>, row: Int, col: Int, step: Int, reqs: Map<String, T>): T? {
+    var r = row + step
+    while (r in shelves.indices && shelves[r].tiles.isEmpty()) r += step
+    val tiles = shelves.getOrNull(r)?.tiles ?: return null
+    return reqs[tiles[col.coerceAtMost(tiles.size - 1)].id]
 }
 
 /**
@@ -888,7 +931,7 @@ internal fun clear() = ClickableSurfaceDefaults.colors(
 
 /** App or game art. Focus is the theme's: a ring and a lift (Slate), a glow (Ink) or an outline with the name bar filled (Mono). */
 @Composable
-private fun GameCard(t: Tile, accent: Accent, lite: Boolean, req: FocusRequester, onFocus: (Tile) -> Unit, square: Boolean, index: Int) {
+private fun GameCard(t: Tile, accent: Accent, lite: Boolean, req: FocusRequester, onFocus: (Tile) -> Unit, square: Boolean, index: Int, move: Modifier = Modifier) {
     val theme = LocalTheme.current
     var isFocused by remember { mutableStateOf(false) }
     val app = t.app
@@ -913,6 +956,7 @@ private fun GameCard(t: Tile, accent: Accent, lite: Boolean, req: FocusRequester
                 // clip = false: a clipping shadow would cut off the focus lift and the frame
                 .then(if (isFocused && !lite && theme.focus == Focus.RING && app != null) Modifier.shadow(28.dp, shape, clip = false, ambientColor = Color(app.color), spotColor = Color(app.color))
                       else Modifier)
+                .then(move)
                 .focusRequester(req)
                 .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocus(t) }
                 .pointerClick(t.onClick, t.onLongClick, req),
@@ -949,14 +993,14 @@ private fun GameCard(t: Tile, accent: Accent, lite: Boolean, req: FocusRequester
 
 /** System and Power: rounded tiles with the icon top left and the label bottom left; focus fills them with the accent. */
 @Composable
-private fun SystemTile(t: Tile, accent: Accent, req: FocusRequester, onFocus: (Tile) -> Unit) {
+private fun SystemTile(t: Tile, accent: Accent, req: FocusRequester, onFocus: (Tile) -> Unit, move: Modifier = Modifier) {
     val theme = LocalTheme.current
     var isFocused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(if (theme.grid == Grid.STRIPS) 0.dp else 20.dp)
     Surface(
         onClick = t.onClick,
         onLongClick = t.onLongClick,
-        modifier = Modifier.size(136.dp, 112.dp).focusRequester(req)
+        modifier = Modifier.size(136.dp, 112.dp).then(move).focusRequester(req)
             .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocus(t) }
             .pointerClick(t.onClick, t.onLongClick, req),
         shape = ClickableSurfaceDefaults.shape(shape),

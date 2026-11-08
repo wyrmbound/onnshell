@@ -61,6 +61,13 @@ object Apps {
     }
 
     /** Where installed 64-bit games keep their APK (OnnShell reads name and art from it; it is never installed). */
+    private fun bareEntries(ids: Set<String>) = ids.map { id ->
+        AppEntry(
+            label = nameFor(id) ?: id, pkg = NATIVE + id, isGame = true, isSystem = false, version = "", updated = 0L, installed = 0L,
+            icon = null, banner = null, color = 0xFF202020.toInt(), art = null,
+        )
+    }
+
     fun nativeGamesDir(ctx: Context) = java.io.File(ctx.getExternalFilesDir(null), "games")
     const val NATIVE = "native:"
 
@@ -69,10 +76,30 @@ object Apps {
      * nativeGamesDir as <id>.apk: Android cannot install them here, but can still read their label, icon and banner.
      * Call off the main thread.
      */
+    /** The games folder lists what is really installed: `<id>` per game, one per line ("id size mtime" as [signature]). */
+    private const val GAMES = "/data/local/tmp/games"
+    private const val LIST = "cd $GAMES 2>/dev/null && for d in */; do d=\${d%/}; [ -f \$d/game.json ] || [ -f \$d/run.sh ] && echo \$d; done"
+
+    /** Installed 64-bit game ids from the box, or null when Shizuku is down (then the tiles in [nativeGamesDir] are trusted as is). */
+    fun nativeIds(): Set<String>? = ShellUser.output(LIST)?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+
+    /** Changes when a game is added, removed or replaced, here or in [nativeGamesDir]; cheap enough to poll. */
+    fun nativeSignature(ctx: Context): String =
+        (ShellUser.output("cd $GAMES 2>/dev/null && ls -ld --full-time */") ?: "") +
+            (nativeGamesDir(ctx).listFiles()?.joinToString { "${it.name}${it.lastModified()}" } ?: "")
+
+    /** A readable name for a game id with no art of its own: the Store's name for it, else the id. */
+    var nameFor: (String) -> String? = { null }
+
     fun loadNative(ctx: Context): List<AppEntry> {
         val pm = ctx.packageManager
-        val files = nativeGamesDir(ctx).listFiles { f -> f.name.endsWith(".apk") || f.name.endsWith(".tile") } ?: return emptyList()
-        return files.mapNotNull { f ->
+        val onBox = nativeIds()
+        val files = (nativeGamesDir(ctx).listFiles { f -> f.name.endsWith(".apk") || f.name.endsWith(".tile") } ?: emptyArray())
+            // a game deleted from the box (adb, a test) leaves its tile behind: drop it
+            .filter { onBox == null || it.nameWithoutExtension in onBox }
+        // games on the box with no tile here (put there by hand, over adb, or restored from a backup) still get one
+        val bare = (onBox ?: emptySet()) - files.map { it.nameWithoutExtension }.toSet()
+        return bareEntries(bare) + files.mapNotNull { f ->
             // Games built for the box (no APK): <id>.tile holds the name, <id>.png the art
             if (f.name.endsWith(".tile")) {
                 val art = runCatching { android.graphics.BitmapFactory.decodeFile(java.io.File(f.parentFile, f.nameWithoutExtension + ".png").path) }.getOrNull()

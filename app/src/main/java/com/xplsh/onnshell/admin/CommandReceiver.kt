@@ -64,6 +64,8 @@ class CommandReceiver : BroadcastReceiver() {
                     val id = intent.getStringExtra("id") ?: return fail("missing --es id")
                     com.xplsh.onnshell.data.Prefs.setThemeId(ctx, id); "theme=$id"
                 }
+                // In-game performance overlay: --ez on true|false. The game screen reads it when it comes to the front.
+                "HUD" -> { val on = intent.getBooleanExtra("on", true); com.xplsh.onnshell.data.Prefs.setPerfHud(ctx, on); "hud=$on" }
                 "APPLY" -> Policy.apply(ctx)
                 "UNPROVISION" -> Policy.unprovision(ctx)
                 "UNHIDE" -> Policy.undo(ctx, "hide", intent.getStringExtra("pkg") ?: return fail("missing --es pkg"))

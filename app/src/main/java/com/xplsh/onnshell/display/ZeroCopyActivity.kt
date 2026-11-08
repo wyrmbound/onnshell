@@ -72,8 +72,16 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
         setTurnScreenOn(true); setShowWhenLocked(true)
         view = SurfaceView(this)
         view.holder.addCallback(this)
-        setContentView(view)
+        val root = android.widget.FrameLayout(this)
+        root.addView(view)
+        hud = PerfHud(root)
+        setContentView(root)
     }
+
+    private lateinit var hud: PerfHud
+    // The overlay setting is read on every return, so a change made in OnnShell settings while the game waits applies at once
+    override fun onResume() { super.onResume(); hud.show(com.xplsh.onnshell.data.Prefs.perfHud(this)) }
+    override fun onStop() { hud.stop(); super.onStop() }
 
     override fun surfaceCreated(holder: SurfaceHolder) { if (GameSession.suspended) resumeGame() else startSession() }
 
@@ -178,7 +186,7 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
                                 } }
                                 .setBufferTransform(game, if (vulkan) 0 else android.view.SurfaceControl.BUFFER_TRANSFORM_MIRROR_VERTICAL)
                                 .apply()
-                            frames++
+                            frames++; GameSession.frames.incrementAndGet()
                             if (frames % 60 == 0) Log.i(TAG, String.format("%d frames shown, %.1f fps (overlay)", frames, frames / ((System.nanoTime() - t0) / 1e9)))
                             continue
                         }
@@ -194,7 +202,7 @@ class ZeroCopyActivity : Activity(), SurfaceHolder.Callback {
                         // TEST-ONLY: --ei ackdelayms N holds each ack N ms, capping any game at about 1000/N fps. Never set on the tile path.
                         if (ackDelayMs > 0) Thread.sleep(ackDelayMs.toLong())
                         sendAck(i)
-                        frames++
+                        frames++; GameSession.frames.incrementAndGet()
                         if (frames % 60 == 0) Log.i(TAG, String.format("%d frames shown, %.1f fps", frames, frames / ((System.nanoTime() - t0) / 1e9)))
                     }
                 }
@@ -276,6 +284,8 @@ object GameSession {
     /** When the last game screen closed. HOME ignores the pad briefly after it, so gameplay presses still in flight
      *  (d-pad + A) cannot walk the home screen into Power > Restart > Yes; that rebooted the box several times. */
     @Volatile var endedAt = 0L
+    /** Frames presented, for the performance overlay's fps. */
+    val frames = java.util.concurrent.atomic.AtomicLong()
     private val bridgeTags = java.util.concurrent.atomic.AtomicInteger()
     fun nextBridgeTag() = bridgeTags.getAndIncrement()
     private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()

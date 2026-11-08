@@ -85,4 +85,20 @@ class CatalogTest {
         val e = Catalog.parse(fixture, emptyMap()).associateBy { it.id }
         assertTrue(e["b-port"]!!.has32); assertFalse(e["a-port"]!!.has32); assertEquals("unknown", e["a-port"]!!.engine)
     }
+
+    @Test fun requirementsComeFromTheCuratedFileThenRecompa() {
+        val curated = Catalog.parseRequirements("""{"_about":"x","A-Port":["Xbox USA .iso"]}""")
+        assertEquals(mapOf("a-port" to listOf("Xbox USA .iso")), curated)
+        val withAssets = port("r-port", "decomp", "https://x/r.apk").replace("\"description\"",
+            "\"assets\":[{\"label\":\"ROM (N64)\",\"accepted\":[{\"sha1\":\"d6\",\"label\":\"USA 1.0\",\"format\":\"z64\"}],\"delivery\":{\"filename\":\"rom.z64\"}}],\"description\"")
+        val e = Catalog.parse("""{"ports":[${port("a-port", "source-port", "https://x/a.apk")},$withAssets]}""", survey, curated).associateBy { it.id }
+        assertEquals(listOf("Xbox USA .iso"), e["a-port"]!!.requires); assertTrue(e["a-port"]!!.needsFiles)
+        assertEquals(listOf("ROM (N64): USA 1.0 .z64 (file rom.z64)"), e["r-port"]!!.requires)
+    }
+
+    @Test fun shippedRequirementsFileParses() {
+        val f = java.io.File("src/main/assets/requirements.json")
+        val m = Catalog.parseRequirements(f.readText())
+        assertTrue("mostwanted" in m); assertTrue(m.values.all { it.isNotEmpty() })
+    }
 }

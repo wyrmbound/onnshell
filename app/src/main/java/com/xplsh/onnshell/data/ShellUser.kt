@@ -41,6 +41,13 @@ object ShellUser {
         }.getOrNull()
     }
 
+    /** Runs [cmd] as the shell user and returns its stdout, or null when Shizuku is not usable or it failed. */
+    fun output(cmd: String): String? = runCatching {
+        val p = start(cmd) ?: return null
+        val out = p.inputStream.bufferedReader().use { it.readText() }
+        if (p.waitFor() == 0) out else null
+    }.getOrNull()
+
     /** Runs [cmd] as the shell user and waits. Returns the exit code, or null when Shizuku is not usable. */
     fun run(cmd: String): Int? = runCatching { start(cmd)?.waitFor() }.getOrNull()
 }

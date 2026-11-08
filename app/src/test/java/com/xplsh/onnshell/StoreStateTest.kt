@@ -58,4 +58,13 @@ class StoreStateTest {
         s.install(entry("a"))
         assertNull(s.busy); assertEquals("engine x does not run here yet", s.error); assertEquals(0, s.installs)
     }
+
+    @Test fun searchMatchesNameOrIdLoosely() {
+        val e = entry("nfsmw-android").copy(name = "NFS Most Wanted Android")
+        assertTrue(StoreState.matches(e, "most wanted")); assertTrue(StoreState.matches(e, "MOSTWANTED"))
+        assertTrue(StoreState.matches(e, "nfsmw")); assertTrue(StoreState.matches(e, "")); assertFalse(StoreState.matches(e, "tyrian"))
+        val s = StoreState(scope, { listOf(e, entry("opentyrian2000")) }, { false }, { _, _ -> Result.success(Unit) })
+        s.refresh(); s.query = "tyr"
+        assertEquals(listOf("opentyrian2000"), s.visible.map { it.id })
+    }
 }

@@ -37,6 +37,8 @@ data class Entry(
     val reports: Int,
     /** Game files the port asks for: accepted sha1s and exact file names (lowercase), for OnnShell's file picker. */
     val wants: Set<String> = emptySet(),
+    /** The exact game version the port needs, one line each: curated (assets/requirements.json) first, then Recompa's assets[]. */
+    val requires: List<String> = emptyList(),
 ) {
     val runnable get() = has32 || engine == "sdl2" || engine == "sdl3"
 }
@@ -53,14 +55,36 @@ object Catalog {
     const val INDEX_URL = "https://raw.githubusercontent.com/kalasyan/recompa/gh-pages/index.json"
     private val TYPES = setOf("decomp", "recomp", "source-port")
     private val HEAVY_3D = setOf("n64", "ps1", "ps2", "ps3", "ps4", "psp", "gamecube", "wii", "wiiu", "xbox", "xbox360", "switch", "switch2", "3ds", "ds")
-    private const val TTL_MS = 24 * 3600 * 1000L
+    // An hour: new ports and fresh reports show up the same evening (owner ask, 2026-11-09); Retry forces it sooner
+    private const val TTL_MS = 3600 * 1000L
 
-    fun parse(json: String, survey: Map<String, Survey>): List<Entry> {
+    fun parse(json: String, survey: Map<String, Survey>, curated: Map<String, List<String>> = emptyMap()): List<Entry> {
         val ports = JSONObject(json).optJSONArray("ports") ?: JSONArray()
-        return (0 until ports.length()).mapNotNull { i -> entry(ports.getJSONObject(i), survey) }
+        return (0 until ports.length()).mapNotNull { i -> entry(ports.getJSONObject(i), survey, curated) }
     }
 
-    private fun entry(p: JSONObject, survey: Map<String, Survey>): Entry? {
+    /** assets/requirements.json: port id -> lines; keys starting with "_" are comments. */
+    fun parseRequirements(json: String): Map<String, List<String>> {
+        val o = JSONObject(json)
+        return o.keys().asSequence().filterNot { it.startsWith("_") }.associate { k ->
+            val a = o.getJSONArray(k); k.lowercase() to (0 until a.length()).map { a.getString(it) }
+        }
+    }
+
+    /** One line per Recompa asset: its label, then the accepted versions with their formats, then the exact file name. */
+    fun requiredLines(assets: JSONArray?): List<String> = (0 until (assets?.length() ?: 0)).mapNotNull { i ->
+        val a = assets!!.getJSONObject(i)
+        val acc = a.optJSONArray("accepted")
+        val versions = (0 until (acc?.length() ?: 0)).map { j ->
+            val v = acc!!.getJSONObject(j)
+            listOf(v.optString("label"), v.optString("format").ifEmpty { null }?.let { ".$it" }).filter { !it.isNullOrEmpty() }.joinToString(" ")
+        }.filter { it.isNotEmpty() }
+        val file = a.optJSONObject("delivery")?.optString("filename")?.ifEmpty { null }
+        val label = a.optString("label").ifEmpty { return@mapNotNull null }
+        label + (if (versions.isNotEmpty()) ": " + versions.joinToString(", ") else "") + (file?.let { " (file $it)" } ?: "")
+    }
+
+    private fun entry(p: JSONObject, survey: Map<String, Survey>, curated: Map<String, List<String>>): Entry? {
         val forks = p.optJSONArray("forks") ?: return null
         // The first fork with a release asset is the one Recompa shows first too
         var fork: JSONObject? = null; var asset: JSONObject? = null
@@ -95,9 +119,10 @@ object Catalog {
             engine = engine, has32 = has32, pkg = fork.optString("package").ifEmpty { null },
             cover = cover, hero = art?.optString("hero")?.ifEmpty { null }, covers = covers,
             description = desc,
-            needsFiles = p.has("assets") || Regex("requires your|your own|game files", RegexOption.IGNORE_CASE).containsMatchIn(desc),
+            needsFiles = p.has("assets") || p.getString("id").lowercase() in curated || Regex("requires your|your own|game files", RegexOption.IGNORE_CASE).containsMatchIn(desc),
             rating = rating, estimated = est, reports = great + playable + broken,
             wants = wants(p.optJSONArray("assets")),
+            requires = (curated[p.getString("id").lowercase()] ?: emptyList()) + requiredLines(p.optJSONArray("assets")),
         )
     }
 
@@ -142,11 +167,12 @@ object Catalog {
     /** The listable entries, from the network when the cache is older than a day (or [force]), else from the cache. */
     suspend fun load(ctx: Context, force: Boolean = false, fetch: (String) -> String = ::http): List<Entry> = withContext(Dispatchers.IO) {
         val survey = runCatching { ctx.assets.open("survey.json").bufferedReader().use { parseSurvey(it.readText()) } }.getOrDefault(emptyMap())
+        val curated = runCatching { ctx.assets.open("requirements.json").bufferedReader().use { parseRequirements(it.readText()) } }.getOrDefault(emptyMap())
         val cache = cacheFile(ctx)
         val fresh = cache.exists() && System.currentTimeMillis() - cache.lastModified() < TTL_MS
         val json = if (fresh && !force) cache.readText() else runCatching { fetch(INDEX_URL).also { cache.writeText(it) } }
             .getOrElse { e -> if (cache.exists()) cache.readText() else throw IOException("Store needs the network", e) }
-        listable(parse(json, survey))
+        listable(parse(json, survey, curated))
     }
 
     fun http(url: String): String {

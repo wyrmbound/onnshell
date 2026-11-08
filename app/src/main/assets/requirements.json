@@ -1,0 +1,18 @@
+{
+  "_about": "Exact game version each port needs, by Recompa port id. Only versions checked on this box or stated by the port's own README. Shown in the Store's detail panel and on the Get warning, next to what Recompa's assets[] declares.",
+  "mostwanted": [
+    "Original Xbox, USA, Black Edition: the disc image (.iso). Checked: default.xbe SHA-1 f636a16af04171089f879a4bed646e185c734233.",
+    "Put the .iso in /sdcard/MostWanted. The PC version does not work."
+  ],
+  "nfsmw-android": [
+    "Xbox 360 game files: the extracted default.xex plus the NFS and Movies folders.",
+    "The listing says PC, but this build is the Xbox 360 recompilation. PC installers and PC files do not work.",
+    "Its Java launcher, which normally copies the files into place, does not run here: put them in the nsfmw-androidevolved folder on the box's storage yourself."
+  ],
+  "gen1recomp": [
+    "A Game Boy ROM: Pokemon Red, Blue or Yellow (US English). FireRed, LeafGreen and Emerald (GBA) are accepted too, matched by SHA-1."
+  ],
+  "tenkaichi3decompandroid": [
+    "PS2 disc image, USA release SLUS-21678 (.iso). Other regions do not work."
+  ]
+}
