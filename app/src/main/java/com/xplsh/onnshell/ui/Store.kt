@@ -83,10 +83,10 @@ private fun mb(size: Long) = "%d MB".format((size + 524288) / 1048576)
  * Mono: a ledger, one game per line. [onGet] decides about the warning and starts the install; [onOpen] launches an installed game.
  */
 @Composable
-fun Store(state: StoreState, accent: Accent, lite: Boolean, onGet: (Entry) -> Unit, onOpen: (Entry) -> Unit) {
+fun Store(state: StoreState, accent: Accent, lite: Boolean, onGet: (Entry) -> Unit, onOpen: (Entry) -> Unit, onSendFiles: () -> Unit = {}) {
     val theme = LocalTheme.current
     var focused by remember { mutableStateOf<Entry?>(null) }
-    LaunchedEffect(Unit) { if (state.entries.isEmpty()) state.refresh() }
+    LaunchedEffect(Unit) { if (state.entries.isEmpty()) state.refresh() else state.scanFiles() } // files may have arrived since
     // A search is for now: more than 10 s away from the Store and it starts clean (owner ask)
     LaunchedEffect(Unit) { if (state.leftAt > 0 && android.os.SystemClock.uptimeMillis() - state.leftAt > 10_000) state.query = "" }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { state.leftAt = android.os.SystemClock.uptimeMillis() } }
@@ -104,6 +104,7 @@ fun Store(state: StoreState, accent: Accent, lite: Boolean, onGet: (Entry) -> Un
             Text(stringResource(R.string.store_runs_here, state.visible.size), fontSize = 16.sp, color = theme.text2, modifier = Modifier.padding(bottom = 10.dp))
             Spacer(Modifier.weight(1f))
             SearchPill(state, accent, lite, Modifier.padding(bottom = 10.dp, end = 8.dp))
+            Box(Modifier.padding(bottom = 10.dp, end = 8.dp)) { TabPill(stringResource(R.string.store_send_files), false, accent, lite) { onSendFiles() } }
             Row(Modifier.padding(bottom = 10.dp)) {
                 listOf(Filter.ALL to R.string.store_filter_all, Filter.EXCELLENT to R.string.store_filter_excellent,
                        Filter.PLAYABLE to R.string.store_filter_playable, Filter.INSTALLED to R.string.store_filter_installed).forEach { (f, res) ->
@@ -242,7 +243,7 @@ private fun Detail(e: Entry?, state: StoreState, accent: Accent, lite: Boolean) 
         Column(Modifier.padding(start = 16.dp, bottom = 80.dp).width(270.dp).fillMaxHeight().background(theme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(18.dp)) {
             if (entry == null) return@Crossfade
             Text(entry.name, fontFamily = theme.display, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(meta(entry), fontSize = 13.sp, color = theme.text3, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+            Text(meta(entry, state), fontSize = 13.sp, color = theme.text3, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
             Text(entry.description.ifEmpty { stringResource(R.string.store_no_description) }, fontSize = 14.sp, lineHeight = 20.sp, color = theme.text2, maxLines = if (entry.requires.isEmpty()) 8 else 3, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -275,15 +276,21 @@ private fun Toast(e: Entry, state: StoreState, modifier: Modifier) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
         Column(modifier.width(400.dp).background(theme.surface, RoundedCornerShape(18.dp)).padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(e.name, fontFamily = theme.display, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Rating.MEDIUM.color().takeIf { e.rating.ordinal >= Rating.MEDIUM.ordinal } ?: theme.text)
-            Text(meta(e) + " · " + e.rating.label(e.estimated) + (if (state.installed[e.id] == true) " · " + stringResource(R.string.store_installed) else ""), fontSize = 13.sp, color = theme.text2, modifier = Modifier.padding(top = 3.dp))
+            Text(meta(e, state) + " · " + e.rating.label(e.estimated) + (if (state.installed[e.id] == true) " · " + stringResource(R.string.store_installed) else ""), fontSize = 13.sp, color = theme.text2, modifier = Modifier.padding(top = 3.dp))
         }
     }
 }
 
 @Composable
-private fun meta(e: Entry): String {
+private fun meta(e: Entry, state: StoreState): String {
     val parts = mutableListOf(e.type, e.engine, mb(e.size))
-    if (e.needsFiles) parts += stringResource(R.string.store_needs_files)
+    when (state.files[e.id]) {
+        com.xplsh.onnshell.data.GameFiles.Status.READY -> parts += stringResource(R.string.store_files_ready)
+        com.xplsh.onnshell.data.GameFiles.Status.WRONG -> parts += stringResource(R.string.store_files_wrong)
+        com.xplsh.onnshell.data.GameFiles.Status.MISSING -> parts += stringResource(R.string.store_needs_files)
+        com.xplsh.onnshell.data.GameFiles.Status.NONE -> {}
+        null -> if (e.needsFiles) parts += stringResource(R.string.store_needs_files)
+    }
     return parts.joinToString(" · ")
 }
 
@@ -319,7 +326,7 @@ private fun Ledger(state: StoreState, accent: Accent, lite: Boolean, onGet: (Ent
                         Cover(e.covers, Modifier.size(72.dp))
                         Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                             Text(e.name.uppercase(), fontFamily = theme.display, fontSize = 26.sp, lineHeight = 26.sp, color = if (isFocused) accent.main else theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(meta(e), fontSize = 13.sp, color = theme.text2, modifier = Modifier.padding(top = 3.dp))
+                            Text(meta(e, state), fontSize = 13.sp, color = theme.text2, modifier = Modifier.padding(top = 3.dp))
                             if (busy) Box(Modifier.padding(top = 6.dp).width(240.dp).height(4.dp).background(theme.surfaceHi)) {
                                 Box(Modifier.fillMaxWidth(state.progress.coerceIn(0.02f, 1f)).fillMaxHeight().background(accent.main))
                             }

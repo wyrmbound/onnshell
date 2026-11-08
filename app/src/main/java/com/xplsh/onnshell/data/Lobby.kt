@@ -8,12 +8,14 @@ import com.xplsh.onnshell.R
 import java.util.Calendar
 
 /**
- * Lobby music while the home screen is in front: "Lo-fi Lobby", or its slower late-night take from midnight to 4 am.
- * Both are original loops made for OnnShell. It plays where game sound goes (TV or box speaker) and waits out the boot chime.
+ * Lobby music while the home screen is in front: "Lo-fi Lobby", or its slower late-night take from midnight to 4 am,
+ * and the shop tune while the Store is open. All are original loops made for OnnShell. It plays where game sound goes (TV or box speaker) and waits out the boot chime.
  */
 object Lobby {
     private var player: MediaPlayer? = null
-    private var night = false
+    private var track = 0
+    /** The Store is on screen: its own tune instead of the lobby. */
+    private var store = false
     private var app: Context? = null
     private val main = Handler(Looper.getMainLooper())
     /** True while the boot chime plays; the music starts when it ends. */
@@ -30,11 +32,11 @@ object Lobby {
     fun play(ctx: Context) {
         val a = ctx.applicationContext; app = a; front = true
         if (held || !Prefs.lobbyMusic(a)) { stop(); return }
-        val n = isNight()
-        android.util.Log.i(TAG, "play night=$n has=${player != null}")
-        val p = player?.takeIf { n == night } ?: run {
-            stop(); night = n
-            MediaPlayer.create(a, if (n) R.raw.lobby_lofi_night else R.raw.lobby_lofi)?.apply { isLooping = true }
+        val want = wanted()
+        android.util.Log.i(TAG, "play track=$want has=${player != null}")
+        val p = player?.takeIf { want == track } ?: run {
+            stop(); track = want
+            MediaPlayer.create(a, want)?.apply { isLooping = true }
         } ?: run { android.util.Log.w(TAG, "no player"); return }
         player = p
         p.preferredDevice = Speaker.forGames(a)
@@ -56,9 +58,18 @@ object Lobby {
         player = null
     }
 
-    /** The Game sound setting changed: follow it now. */
     private const val TAG = "Lobby"
 
+    private fun wanted() = when { store -> R.raw.lobby_shop; isNight() -> R.raw.lobby_lofi_night; else -> R.raw.lobby_lofi }
+
+    /** The Store opened or closed: switch tunes now if the home screen is in front. */
+    fun setStore(ctx: Context, on: Boolean) {
+        if (store == on) return
+        store = on
+        if (front) play(ctx)
+    }
+
+    /** The Game sound setting changed: follow it now. */
     fun reroute(ctx: Context) { player?.preferredDevice = Speaker.forGames(ctx) }
 
     // Swaps day and night tracks at midnight and 4 am while the home screen just sits there.
@@ -66,7 +77,7 @@ object Lobby {
         override fun run() {
             val a = app ?: return
             if (player?.isPlaying != true) return
-            if (isNight() != night) play(a) else main.postDelayed(this, 60_000)
+            if (wanted() != track) play(a) else main.postDelayed(this, 60_000)
         }
     }
 }

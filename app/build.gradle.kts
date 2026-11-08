@@ -63,6 +63,7 @@ dependencies {
     implementation("dev.rikka.shizuku:provider:13.1.5")
     // adb client: OnnShell starts Shizuku itself at boot through the box's own adbd (127.0.0.1:5555)
     implementation("dev.mobile:dadb:1.2.10")
+    implementation("com.google.zxing:core:3.5.3") // QR code for "Send game files"
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // android.jar only has stubs in JVM tests

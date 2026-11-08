@@ -5,7 +5,7 @@ import sys, os, wave, subprocess
 import numpy as np
 
 SR = 44100
-OUT = sys.argv[1]
+OUT = sys.argv[1] if len(sys.argv) > 1 else '.'
 rng = np.random.default_rng(7)
 
 
@@ -265,5 +265,6 @@ def lofi(bpm=80, night=False):
            lp=5000, name='4-lofi-lobby', title='Lo-fi Lobby')
 
 
-os.makedirs(OUT, exist_ok=True)
-for fn in (sys.argv[2:] or ['dusk', 'arcade', 'neon', 'lofi']): {'night': lambda: lofi(64, True)}.get(fn, globals().get(fn))()
+if __name__ == '__main__':
+  os.makedirs(OUT, exist_ok=True)
+  for fn in (sys.argv[2:] or ['dusk', 'arcade', 'neon', 'lofi']): {'night': lambda: lofi(64, True)}.get(fn, globals().get(fn))()

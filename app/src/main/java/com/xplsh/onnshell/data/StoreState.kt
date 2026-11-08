@@ -20,6 +20,7 @@ class StoreState(
     private val loader: suspend (force: Boolean) -> List<Entry>,
     private val isInstalled: (id: String) -> Boolean,
     private val installer: suspend (Entry, onProgress: (Float, String) -> Unit) -> Result<Unit>,
+    private val scanner: suspend (List<Entry>) -> Map<String, GameFiles.Status> = { emptyMap() },
 ) {
     var entries by mutableStateOf<List<Entry>>(emptyList()); private set
     var error by mutableStateOf<String?>(null); private set
@@ -46,12 +47,31 @@ class StoreState(
 
     fun entry(id: String) = entries.firstOrNull { it.id == id }
 
+    /** Whether each game's files are on the box (absent until the first look finishes). */
+    val files = mutableStateMapOf<String, GameFiles.Status>()
+    private var scanning = false
+    private var rescan = false
+
+    /** Looks over the drives again (new uploads, a USB stick); one look at a time, a request during one runs once after it. */
+    fun scanFiles() {
+        if (entries.isEmpty()) return
+        if (scanning) { rescan = true; return }
+        scanning = true
+        scope.launch {
+            do {
+                rescan = false
+                runCatching { scanner(entries) }.onSuccess { files.putAll(it) }
+            } while (rescan)
+            scanning = false
+        }
+    }
+
     fun refresh(force: Boolean = false) {
         if (loading) return
         loading = true
         scope.launch {
             runCatching { loader(force) }
-                .onSuccess { list -> entries = list; error = null; list.forEach { installed[it.id] = isInstalled(it.id) } }
+                .onSuccess { list -> entries = list; error = null; list.forEach { installed[it.id] = isInstalled(it.id) }; scanFiles() }
                 .onFailure { error = it.message ?: it.toString() }
             loading = false
         }
@@ -93,6 +113,18 @@ class StoreState(
             loader = { force -> Catalog.load(ctx, force) },
             isInstalled = { id -> GameInstaller.installed(ctx, id, current?.entry(id)?.pkg) }, // entries are set just before this runs
             installer = { e, p -> GameInstaller.install(ctx, e.id, e.url, e.sha256, e.size, p) },
+            scanner = { list ->
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    GameFiles.grantStorage(ctx.packageName)
+                    val all = GameFiles.walk(GameFiles.roots())
+                    val idx = GameFiles.index(all, GameFiles.hashExts(list.flatMap { it.wants }))
+                    list.associate { e ->
+                        val pick = Requirements.forId(ctx, e.id)?.pick
+                        e.id to GameFiles.status(e.wants, e.needsFiles, idx, pick?.let { Requirements.present(it) },
+                            pick?.let { Requirements.candidates(it, all).isNotEmpty() } ?: false)
+                    }
+                }
+            },
         ).also { current = it }
     }
 }

@@ -139,6 +139,8 @@ sealed interface Screen {
     data class Info(val title: String, val lines: suspend () -> List<String>) : Screen
     data class Details(val tile: Tile) : Screen
     /** A 64-bit game whose files are not where it reads them yet: find them on the drives, copy, then start. */
+    /** "Send game files": the upload page for a phone or PC, open while this screen is up. */
+    data class SendFiles(val back: Screen) : Screen
     data class GetFiles(val label: String, val id: String, val need: com.xplsh.onnshell.data.Requirements.Need, val attempt: Int = 0) : Screen
     data class Options(val tile: Tile) : Screen
     // opened: presses (or touchpad-pointer clicks) already in flight when the panel appears must not confirm it
@@ -184,6 +186,8 @@ fun Shell(resumes: Int) {
     var padIdle by remember { mutableIntStateOf(Prefs.padIdleMins(ctx)) }
     var cornerSize by remember { mutableIntStateOf(Prefs.cornerSize(ctx)) }
     var cornerPos by remember { mutableIntStateOf(Prefs.cornerPos(ctx).coerceIn(0, 3)) }
+    // the Store has its own tune, kept through its install prompt
+    LaunchedEffect(screen) { com.xplsh.onnshell.data.Lobby.setStore(ctx, screen == Screen.Store || (screen as? Screen.Confirm)?.back == Screen.Store || (screen as? Screen.SendFiles)?.back == Screen.Store) }
     LaunchedEffect(resumes) { themeId = Prefs.themeId(ctx) } // the THEME command and a relaunch change it without recreating us
     val theme = Themes.byId(themeId)
     val lite = Pad.lite
@@ -251,7 +255,7 @@ fun Shell(resumes: Int) {
         }
     }
     LaunchedEffect(Pad.testing) { if (!Pad.testing && screen == Screen.Controller) screen = Screen.Home }
-    BackHandler(enabled = screen != Screen.Home) { screen = (screen as? Screen.Confirm)?.back ?: Screen.Home }
+    BackHandler(enabled = screen != Screen.Home) { screen = (screen as? Screen.Confirm)?.back ?: (screen as? Screen.SendFiles)?.back ?: Screen.Home }
 
     fun open(action: String, data: Uri? = null) {
         runCatching { ctx.startActivity(Intent(action, data).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
@@ -330,7 +334,7 @@ fun Shell(resumes: Int) {
                     listOf(stringResource(R.string.tab_store) to { screen = Screen.Store; store.refresh() }),
                     { screen = Screen.Details(it) }, { screen = Screen.Options(it) })
 
-                Screen.Store -> Store(store, accent, lite, onGet = { getEntry(it) }, onOpen = { openEntry(it) })
+                Screen.Store -> Store(store, accent, lite, onGet = { getEntry(it) }, onOpen = { openEntry(it) }, onSendFiles = { screen = Screen.SendFiles(Screen.Store) })
 
                 Screen.Menu -> Panel(stringResource(R.string.menu_title), accent) {
                     Choices(accent, listOf(
@@ -432,12 +436,26 @@ fun Shell(resumes: Int) {
                         }
                     }
                     val list = found
+                    fun use(f: java.io.File) {
+                        copying = 0f; failed = null
+                        scope.launch {
+                            var shown = -1
+                            val r = withContext(Dispatchers.IO) {
+                                runCatching { com.xplsh.onnshell.data.Requirements.install(pick, f) { p -> val pct = (p * 100).toInt(); if (pct != shown) { shown = pct; copying = p } } }
+                            }
+                            if (r.isSuccess) { screen = Screen.Home; startNative(s.id) }
+                            else { copying = null; failed = r.exceptionOrNull()?.message ?: "?" }
+                        }
+                    }
+                    // Exactly one fit: nothing to choose, so put it in place and start (owner ask: fewer hoops)
+                    LaunchedEffect(list) { if (list?.size == 1 && copying == null && failed == null) use(list[0]) }
+                    val send = stringResource(R.string.files_send) to { screen = Screen.SendFiles(s.copy(attempt = s.attempt + 1)) }
                     when {
                         copying != null -> Line(stringResource(R.string.files_copying, ((copying ?: 0f) * 100).toInt()))
                         list == null -> Line(stringResource(R.string.files_looking))
                         list.isEmpty() -> {
                             Line(stringResource(R.string.files_none))
-                            Choices(accent, listOf(stringResource(R.string.files_retry) to { screen = s.copy(attempt = s.attempt + 1) },
+                            Choices(accent, listOf(send, stringResource(R.string.files_retry) to { screen = s.copy(attempt = s.attempt + 1) },
                                 stringResource(R.string.cancel) to { screen = Screen.Home }))
                         }
                         else -> {
@@ -446,23 +464,14 @@ fun Shell(resumes: Int) {
                             Choices(accent, list.take(12).map { f ->
                                 val where = if (f.path.startsWith("/storage/emulated/0")) internal else usb
                                 val size = if (f.isFile) " · %d MB".format(f.length() / 1048576) else ""
-                                val pickIt: () -> Unit = {
-                                    copying = 0f; failed = null
-                                    scope.launch {
-                                        var shown = -1
-                                        val r = withContext(Dispatchers.IO) {
-                                            runCatching { com.xplsh.onnshell.data.Requirements.install(pick, f) { p -> val pct = (p * 100).toInt(); if (pct != shown) { shown = pct; copying = p } } }
-                                        }
-                                        if (r.isSuccess) { screen = Screen.Home; startNative(s.id) }
-                                        else { copying = null; failed = r.exceptionOrNull()?.message ?: "?" }
-                                    }
-                                }
-                                "${f.name}$size · $where" to pickIt
-                            } + (stringResource(R.string.cancel) to { screen = Screen.Home }))
+                                "${f.name}$size · $where" to { use(f) }
+                            } + send + (stringResource(R.string.cancel) to { screen = Screen.Home }))
                         }
                     }
                     failed?.let { Line(stringResource(R.string.files_failed, it), Ui.TEXT2) }
                 }
+
+                is Screen.SendFiles -> Panel(stringResource(R.string.send_title), accent) { SendFilesPanel(store) }
 
                 is Screen.Info -> Panel(s.title, accent) {
                     val lines by produceState(emptyList<String>(), s) { value = withContext(Dispatchers.IO) { s.lines() } }

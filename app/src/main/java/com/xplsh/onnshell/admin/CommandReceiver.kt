@@ -26,6 +26,10 @@ class CommandReceiver : BroadcastReceiver() {
                     val d = com.xplsh.onnshell.data.Speaker.chime(ctx, intent.getFloatExtra("vol", 0.3f))
                     "speaker=${d?.let { "${it.productName} id ${it.id}" } ?: "none (default output)"}"
                 }
+                "SEND_FILES" -> { // upload page test: --ez on true|false (the screen normally opens and closes it)
+                    val d = com.xplsh.onnshell.data.FileDrop
+                    if (intent.getBooleanExtra("on", true)) d.start() ?: "no home network" else { d.stop(); "stopped" }
+                }
                 "LOBBY" -> { // lobby music test: [--ez night true|false] forces a track, --ez clock true follows the clock again
                     val l = com.xplsh.onnshell.data.Lobby
                     if (intent.getBooleanExtra("clock", false)) l.forceNight = null
